@@ -9,7 +9,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from homeassistant.components.calendar import CalendarEntity, CalendarEvent
+from homeassistant.components.calendar import (
+    CalendarEntity,
+    CalendarEntityFeature,
+    CalendarEvent,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -49,6 +53,7 @@ class ReminderCalendarEntity(CalendarEntity):
     _attr_name = CALENDAR_ENTITY_NAME  # -> entity_id calendar.reminders
     _attr_icon = "mdi:alarm"
     _attr_should_poll = False
+    _attr_supported_features = CalendarEntityFeature.DELETE_EVENT
 
     def __init__(self, store: ReminderStore, entry: ConfigEntry) -> None:
         self._store = store
@@ -72,3 +77,12 @@ class ReminderCalendarEntity(CalendarEntity):
     ) -> list[CalendarEvent]:
         """Return reminders within the requested window."""
         return [_to_calendar_event(e) for e in self._store.in_range(start_date, end_date)]
+
+    async def async_delete_event(
+        self,
+        uid: str,
+        recurrence_id: str | None = None,
+        recurrence_range: str | None = None,
+    ) -> None:
+        """Delete a reminder (e.g. from the calendar card or calendar.delete_event)."""
+        await self._store.async_delete_event(uid)

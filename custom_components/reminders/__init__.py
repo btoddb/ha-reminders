@@ -93,10 +93,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass, delivery.async_tick(), name="reminders_startup_catchup"
         )
     else:
+
+        async def _async_startup_catchup(_event) -> None:
+            await delivery.async_tick()
+
+        # A coroutine listener is scheduled on the event loop by HA; a plain sync
+        # lambda would be run in an executor thread, and calling into hass from there
+        # trips HA's thread-safety guard.
         entry.async_on_unload(
             hass.bus.async_listen_once(
-                EVENT_HOMEASSISTANT_STARTED,
-                lambda _event: hass.async_create_task(delivery.async_tick()),
+                EVENT_HOMEASSISTANT_STARTED, _async_startup_catchup
             )
         )
 

@@ -82,6 +82,13 @@ class ReminderStore:
         self.watermark = watermark
         await self._async_persist()
 
+    async def async_delete_event(self, uid: str) -> None:
+        """Remove a reminder by uid and persist."""
+        kept = [e for e in self.events if e.uid != uid]
+        if len(kept) != len(self.events):
+            self.events = kept
+            await self._async_persist()
+
     async def async_prune(self, before: datetime) -> None:
         """Drop already-delivered events older than ``before`` to bound storage."""
         kept = [e for e in self.events if e.start >= before]
