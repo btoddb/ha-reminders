@@ -4,20 +4,24 @@ The Reminders integration.
 Time-based reminders set in natural language (by the conversation agent — see the
 README) and delivered as a high-priority push when due. This module wires up:
 
-- the ``reminders.create`` service (RM-5) which returns a spoken-time response (RM-9);
+- the ``reminders.create`` service (RM-5) which returns a spoken-time response
+  (RM-9);
 - a component-owned ``calendar.reminders`` entity (calendar platform);
-- a once-a-minute delivery loop with a durable, 6h-clamped watermark (RM-6, RM-7, RM-7b).
+- a once-a-minute delivery loop with a durable, 6h-clamped watermark
+  (RM-6, RM-7, RM-7b).
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 from datetime import timedelta
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
 from homeassistant.core import (
     CoreState,
@@ -30,7 +34,6 @@ from homeassistant.core import (
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -44,6 +47,12 @@ from .const import (
 from .delivery import CATCHUP_FLOOR, ReminderEvent, due_events, effective_watermark
 from .spoken_time import format_spoken_time
 from .store import ReminderStore
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import Event
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,9 +75,10 @@ def _optional_minutes(value: object) -> int | None:
     """
     Coerce in_minutes, tolerating ''/None.
 
-    The agent's create_reminder function always passes ``in_minutes: "{{ in_minutes }}"``,
-    which renders to an empty string whenever the model omits it (i.e. every absolute
-    ``when`` request). Treat ''/None as "not given" rather than rejecting the call.
+    The agent's create_reminder function always passes
+    ``in_minutes: "{{ in_minutes }}"``, which renders to an empty string whenever
+    the model omits it (i.e. every absolute ``when`` request). Treat ''/None as
+    "not given" rather than rejecting the call.
     """
     if value in (None, ""):
         return None
@@ -118,7 +128,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
     else:
 
-        async def _async_startup_catchup(_event) -> None:
+        async def _async_startup_catchup(_event: Event) -> None:
             await delivery.async_tick()
 
         # A coroutine listener is scheduled on the event loop by HA; a plain sync
@@ -138,22 +148,22 @@ async def _async_register_card(hass: HomeAssistant) -> None:
     """
     Serve the Lovelace card bundle and auto-register it as a frontend module.
 
-    Idempotent: a static path can only be registered once, and ``single_config_entry``
-    means there is one entry anyway, but guard with a flag so a reload never re-registers.
+    Idempotent: a static path can only be registered once, and
+    ``single_config_entry`` means there is one entry anyway, but guard with a flag
+    so a reload never re-registers.
     """
     if hass.data.get(_CARD_REGISTERED_KEY):
         return
 
-    www_dir = os.path.join(os.path.dirname(__file__), "www")
+    www_dir = Path(__file__).parent / "www"
     # Ensure the directory exists so registering the static route never fails before
     # the card has been built/deployed (scripts/deploy.sh fills it in).
-    await hass.async_add_executor_job(lambda: os.makedirs(www_dir, exist_ok=True))
-
-    from homeassistant.components.frontend import add_extra_js_url
-    from homeassistant.components.http import StaticPathConfig
+    await hass.async_add_executor_job(
+        lambda: www_dir.mkdir(parents=True, exist_ok=True)
+    )
 
     await hass.http.async_register_static_paths(
-        [StaticPathConfig(CARD_URL_BASE, www_dir, cache_headers=False)]
+        [StaticPathConfig(CARD_URL_BASE, str(www_dir), cache_headers=False)]
     )
     add_extra_js_url(hass, f"{CARD_URL_BASE}/{CARD_FILENAME}")
     hass.data[_CARD_REGISTERED_KEY] = True
@@ -199,10 +209,11 @@ def _async_register_service(hass: HomeAssistant, store: ReminderStore) -> None:
                 start = dt_util.as_local(parsed)
 
         if start is None:
-            raise ServiceValidationError(
+            msg = (
                 f"Could not determine reminder time (when={when!r}, "
                 f"in_minutes={in_minutes!r})"
             )
+            raise ServiceValidationError(msg)
 
         event = ReminderEvent(uid=uuid.uuid4().hex, summary=message, start=start)
         await store.async_add_event(event)
@@ -228,6 +239,7 @@ class ReminderDelivery:
     def __init__(
         self, hass: HomeAssistant, entry: ConfigEntry, store: ReminderStore
     ) -> None:
+        """Initialize with the store and config entry to deliver against."""
         self._hass = hass
         self._entry = entry
         self._store = store
@@ -241,7 +253,7 @@ class ReminderDelivery:
         domain, _, service = configured.partition(".")
         return (domain or "notify"), (service or "notify")
 
-    async def async_tick(self, _now=None) -> None:
+    async def async_tick(self, _now: datetime | None = None) -> None:
         """One delivery pass over the ``(watermark, now]`` window (RM-6/RM-7)."""
         now = dt_util.now()
         watermark = effective_watermark(self._store.watermark, now)

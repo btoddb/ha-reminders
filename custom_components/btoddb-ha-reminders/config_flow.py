@@ -42,6 +42,7 @@ class RemindersConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        """Handle the (only) setup step: pick the notify target."""
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
         if user_input is not None:
@@ -52,7 +53,8 @@ class RemindersConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+    def async_get_options_flow(_config_entry: ConfigEntry) -> OptionsFlow:
+        """Return the options flow handler (notify target is its only field)."""
         return RemindersOptionsFlow()
 
 
@@ -62,6 +64,7 @@ class RemindersOptionsFlow(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        """Handle the (only) options step: change the notify target."""
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
         current = self.config_entry.options.get(
