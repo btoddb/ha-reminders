@@ -1,5 +1,6 @@
 {
-  "name": "Reminders",
+  "name": "BToddB HA Reminders",
   "render_readme": true,
-  "homeassistant": "2024.1.0"
+  "homeassistant": "2026.3.2",
+  "hacs": "2.0.5"
 }
