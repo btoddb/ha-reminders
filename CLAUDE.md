@@ -118,8 +118,10 @@ If you leave a comment on the PR, and it is more than just a comment, tag each c
 - **Lint:** `scripts/lint` (ruff). It **rewrites files** (`ruff format` +
   `ruff check --fix`) — it is not a check-only command, so expect working-tree
   changes after it runs.
-- **Engine unit tests (no HA needed):**
-  `pytest custom_components/btoddb-ha-reminders/tests/`
+- **Engine unit tests (no HA needed):** run from inside the tests directory so
+  `conftest.py`'s `load_module` shim is importable (`--import-mode=importlib`
+  doesn't add it to `sys.path` otherwise):
+  `cd custom_components/btoddb-ha-reminders/tests && python3 -m pytest`
 - **Validate manifest/HACS:** `python3 -m script.hassfest` and the
   `.github/workflows/validate.yml` workflow.
 - **Build the card:** `scripts/deploy.sh` builds, bumps the version, and copies
