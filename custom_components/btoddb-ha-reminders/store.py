@@ -13,21 +13,27 @@ RM-7a moot: a ``Store`` value is durable and restored on load by construction, s
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from datetime import datetime
+from typing import TYPE_CHECKING
 
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import callback
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import STORAGE_KEY, STORAGE_VERSION
 from .delivery import ReminderEvent
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from datetime import datetime
+
+    from homeassistant.core import HomeAssistant
+
 
 class ReminderStore:
     """In-memory reminder events + watermark, persisted to HA ``.storage``."""
 
     def __init__(self, hass: HomeAssistant) -> None:
+        """Bind to ``hass`` storage; call ``async_load`` to populate state."""
         self._store: Store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self.events: list[ReminderEvent] = []
         self.watermark: datetime | None = None
@@ -98,5 +104,5 @@ class ReminderStore:
             await self._async_persist()
 
     def in_range(self, start: datetime, end: datetime) -> list[ReminderEvent]:
-        """Events whose start falls within ``[start, end]`` (for the calendar entity)."""
+        """Events whose start falls within ``[start, end]`` (calendar entity query)."""
         return [e for e in self.events if start <= e.start <= end]

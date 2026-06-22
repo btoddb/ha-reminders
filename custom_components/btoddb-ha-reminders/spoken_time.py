@@ -9,7 +9,14 @@ reading an ISO/digit-clock form aloud. Ported from the Jinja in the original
 
 from __future__ import annotations
 
-from datetime import datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+# Beyond this many days out, a bare weekday name is ambiguous (could be more than
+# one occurrence), so the month/day is spelled out too.
+WEEKDAY_NAME_HORIZON_DAYS = 7
 
 
 def format_spoken_time(dt: datetime, now: datetime) -> str:
@@ -34,7 +41,7 @@ def format_spoken_time(dt: datetime, now: datetime) -> str:
         day = "today"
     elif days_out == 1:
         day = "tomorrow"
-    elif days_out < 7:
+    elif days_out < WEEKDAY_NAME_HORIZON_DAYS:
         day = dt.strftime("%A")
     else:
         day = dt.strftime("%A, %B ") + str(dt.day)

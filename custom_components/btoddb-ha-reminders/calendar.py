@@ -8,21 +8,27 @@ changes (a reminder is created or pruned).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from homeassistant.components.calendar import (
     CalendarEntity,
     CalendarEntityFeature,
     CalendarEvent,
 )
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .const import CALENDAR_ENTITY_NAME, DOMAIN
-from .delivery import ReminderEvent
-from .store import ReminderStore
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .delivery import ReminderEvent
+    from .store import ReminderStore
 
 # Reminders are point-in-time; model each as a 1-minute calendar event.
 EVENT_DURATION = timedelta(minutes=1)
@@ -57,6 +63,7 @@ class ReminderCalendarEntity(CalendarEntity):
     _attr_supported_features = CalendarEntityFeature.DELETE_EVENT
 
     def __init__(self, store: ReminderStore, entry: ConfigEntry) -> None:
+        """Initialize bound to the store and the owning config entry."""
         self._store = store
         self._attr_unique_id = f"{entry.entry_id}_calendar"
 
@@ -74,7 +81,7 @@ class ReminderCalendarEntity(CalendarEntity):
         return _to_calendar_event(upcoming[0]) if upcoming else None
 
     async def async_get_events(
-        self, hass: HomeAssistant, start_date: datetime, end_date: datetime
+        self, _hass: HomeAssistant, start_date: datetime, end_date: datetime
     ) -> list[CalendarEvent]:
         """Return reminders within the requested window."""
         return [

@@ -17,6 +17,7 @@ ignore = [
     "D212", # multi-line-summary-first-line (incompatible with formatter)
     "COM812", # incompatible with formatter
     "ISC001", # incompatible with formatter
+    "N999", # the integration dir/domain intentionally matches the HACS repo slug (hyphenated)
 ]
 
 [lint.flake8-pytest-style]
@@ -44,4 +45,7 @@ max-complexity = 25
 ]
 "custom_components/btoddb-ha-reminders/engine.py" = [
     "S101",    # assert used for type-narrowing invariants
+]
+"custom_components/btoddb-ha-reminders/calendar.py" = [
+    "ARG002",  # CalendarEntity calls async_get_events/async_delete_event's unused args by keyword
 ]
