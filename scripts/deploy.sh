@@ -15,7 +15,7 @@ echo "home dir = ${HOME_DIR}"
 
 set -euo pipefail
 
-CARD_DIR="${HOME_DIR}/custom_components/btoddb-ha-reminders/card"
+CARD_DIR="${HOME_DIR}/custom_components/btoddb_ha_reminders/card"
 COMPONENT_WWW="$(cd "$CARD_DIR/.." && pwd)/www"
 cd "$CARD_DIR"
 

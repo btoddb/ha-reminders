@@ -5,7 +5,7 @@ The `btoddb-reminders-card` Lovelace card for the Reminders integration.
 ## What it does
 
 - An add row (native text `input` + native `datetime-local` input + `mwc-button`) that
-  calls the **response-only** `reminders.create` service (`returnResponse` must be
+  calls the **response-only** `btoddb_ha_reminders.create` service (`returnResponse` must be
   `true`). The message uses a styled native `<input>` rather than `ha-textfield` so it
   always renders even where that HA element isn't loaded.
 - A list of upcoming reminders read from the `calendar.reminders` entity via the

@@ -4,7 +4,7 @@ The Reminders integration.
 Time-based reminders set in natural language (by the conversation agent — see the
 README) and delivered as a high-priority push when due. This module wires up:
 
-- the ``reminders.create`` service (RM-5) which returns a spoken-time response
+- the ``btoddb_ha_reminders.create`` service (RM-5) which returns a spoken-time response
   (RM-9);
 - a component-owned ``calendar.reminders`` entity (calendar platform);
 - a once-a-minute delivery loop with a durable, 6h-clamped watermark

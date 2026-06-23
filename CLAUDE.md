@@ -6,18 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This repo is a single Home Assistant **custom integration**, `btoddb-ha-reminders`
+This repo is a single Home Assistant **custom integration**, `btoddb_ha_reminders`
 (HACS-installable), that allows the user to setup reminders, and have HA remind them at the specified time.
 
 The repo is based on the `integration_blueprint` dev scaffold: `config/` is a throwaway
 HA instance for local testing, `scripts/` holds dev helpers, and `requirements.txt`
 pins the HA/lint toolchain.
 
-Every directory under `custom_components/` **except `btoddb-ha-reminders`** is a
+Every directory under `custom_components/` **except `btoddb_ha_reminders`** is a
 **vendored third-party integration** kept only for local testing (currently
 `custom_components/dreo/`). Never modify any of them. If any command — including
 `scripts/lint` — leaves changes under one of these directories, revert them; never
-commit a diff outside `btoddb-ha-reminders`.
+commit a diff outside `btoddb_ha_reminders`.
 
 ## GitHub Workflow
 
@@ -121,12 +121,12 @@ If you leave a comment on the PR, and it is more than just a comment, tag each c
 - **Engine unit tests (no HA needed):** run from inside the tests directory so
   `conftest.py`'s `load_module` shim is importable (`--import-mode=importlib`
   doesn't add it to `sys.path` otherwise):
-  `cd custom_components/btoddb-ha-reminders/tests && python3 -m pytest`
+  `cd custom_components/btoddb_ha_reminders/tests && python3 -m pytest`
 - **Validate manifest/HACS:** `python3 -m script.hassfest` and the
   `.github/workflows/validate.yml` workflow.
 - **Build the card:** `scripts/deploy.sh` builds, bumps the version, and copies
   into `www/`. Edit the TypeScript source at
-  `custom_components/btoddb-ha-reminders/card/src/*.ts` — never hand-edit the
+  `custom_components/btoddb_ha_reminders/card/src/*.ts` — never hand-edit the
   generated `www/*.js` bundle. (Card-specific guidance lives in that folder's
   `CLAUDE.md`.)
 

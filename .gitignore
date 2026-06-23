@@ -7,8 +7,8 @@ __pycache__
 node_modules
 
 # card build output (intermediate; deployed copy lives in www/)
-custom_components/btoddb-ha-reminders/card/btoddb-ha-reminders.js
-custom_components/btoddb-ha-reminders/card/btoddb-ha-reminders.js.map
+custom_components/btoddb_ha_reminders/card/btoddb-ha-reminders.js
+custom_components/btoddb_ha_reminders/card/btoddb-ha-reminders.js.map
 
 # local stuff
 devcontainer-lock.json
@@ -29,4 +29,4 @@ config.backup*/
 
 # don't commit extra custom components used for testing
 custom_components/*
-!custom_components/btoddb-ha-reminders
+!custom_components/btoddb_ha_reminders

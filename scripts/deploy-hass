@@ -5,7 +5,7 @@ set -e
 cd "$(dirname "$0")/.."
 
 REMOTE="${HASS_REMOTE:-root@hass.homelab.lan}"
-CUSTOM_COMPONENT="btoddb-ha-reminders"
+CUSTOM_COMPONENT="btoddb_ha_reminders"
 REMOTE_PATH="/homeassistant/custom_components/${CUSTOM_COMPONENT}"
 
 echo "Deploying to ${REMOTE}:${REMOTE_PATH} ..."

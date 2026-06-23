@@ -140,8 +140,8 @@ export class BtoddbRemindersCard extends LitElement {
       const events = await this.hass.callApi<CalendarEvent[]>(
         "GET",
         `calendars/${this._entity}` +
-          `?start=${encodeURIComponent(start.toISOString())}` +
-          `&end=${encodeURIComponent(end.toISOString())}`,
+        `?start=${encodeURIComponent(start.toISOString())}` +
+        `&end=${encodeURIComponent(end.toISOString())}`,
       );
       const cutoff = Date.now() - 60_000;
       this._items = (events ?? [])
@@ -171,9 +171,9 @@ export class BtoddbRemindersCard extends LitElement {
     this._busy = true;
     this._error = "";
     try {
-      // `btoddb-ha-reminders.create` is a response-only service, so returnResponse must be true.
+      // `btoddb_ha_reminders.create` is a response-only service, so returnResponse must be true.
       await this.hass.callService(
-        "btoddb-ha-reminders",
+        "btoddb_ha_reminders",
         "create",
         { message, when: this._when },
         undefined,
@@ -226,7 +226,7 @@ export class BtoddbRemindersCard extends LitElement {
   }
 
   render() {
-    const title = this._config.title ?? "Reminders";
+    const title = this._config.title ?? "BToddB Reminders";
     return html`
       <ha-card .header=${title}>
         <div class="content">
@@ -237,19 +237,19 @@ export class BtoddbRemindersCard extends LitElement {
               placeholder="New reminder"
               .value=${this._message}
               @input=${(e: Event) => {
-                this._message = (e.target as HTMLInputElement).value;
-              }}
+        this._message = (e.target as HTMLInputElement).value;
+      }}
               @keydown=${(e: KeyboardEvent) => {
-                if (e.key === "Enter") this._add();
-              }}
+        if (e.key === "Enter") this._add();
+      }}
             />
             <input
               class="when"
               type="datetime-local"
               .value=${this._when}
               @input=${(e: Event) => {
-                this._when = (e.target as HTMLInputElement).value;
-              }}
+        this._when = (e.target as HTMLInputElement).value;
+      }}
             />
             <mwc-button
               raised
@@ -261,15 +261,15 @@ export class BtoddbRemindersCard extends LitElement {
           </div>
 
           ${this._error
-            ? html`<div class="error">${this._error}</div>`
-            : nothing}
+        ? html`<div class="error">${this._error}</div>`
+        : nothing}
 
           ${this._items.length === 0
-            ? html`<div class="empty">No upcoming reminders.</div>`
-            : html`
+        ? html`<div class="empty">No upcoming reminders.</div>`
+        : html`
                 <div class="list">
                   ${this._items.map(
-                    (item) => html`
+          (item) => html`
                       <div class="item">
                         <ha-icon class="leading" icon="mdi:alarm"></ha-icon>
                         <div class="text">
@@ -284,7 +284,7 @@ export class BtoddbRemindersCard extends LitElement {
                         </ha-icon-button>
                       </div>
                     `,
-                  )}
+        )}
                 </div>
               `}
         </div>

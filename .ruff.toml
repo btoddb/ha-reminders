@@ -17,7 +17,6 @@ ignore = [
     "D212", # multi-line-summary-first-line (incompatible with formatter)
     "COM812", # incompatible with formatter
     "ISC001", # incompatible with formatter
-    "N999", # the integration dir/domain intentionally matches the HACS repo slug (hyphenated)
 ]
 
 [lint.flake8-pytest-style]
@@ -30,7 +29,7 @@ keep-runtime-typing = true
 max-complexity = 25
 
 [lint.per-file-ignores]
-"custom_components/btoddb-ha-reminders/tests/*.py" = [
+"custom_components/btoddb_ha_reminders/tests/*.py" = [
     "ANN",     # type annotations not required in tests
     "C408",    # dict() literal style
     "D103",    # missing docstrings in test functions
@@ -43,9 +42,9 @@ max-complexity = 25
     "S101",    # assert is the normal test pattern
     "SLF001",  # tests legitimately exercise private members (e.g. controller._on_change)
 ]
-"custom_components/btoddb-ha-reminders/engine.py" = [
+"custom_components/btoddb_ha_reminders/engine.py" = [
     "S101",    # assert used for type-narrowing invariants
 ]
-"custom_components/btoddb-ha-reminders/calendar.py" = [
+"custom_components/btoddb_ha_reminders/calendar.py" = [
     "ARG002",  # async_delete_event's unused recurrence_id/recurrence_range are passed by keyword
 ]

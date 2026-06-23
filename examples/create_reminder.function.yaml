@@ -42,7 +42,7 @@
   function:
     type: script
     sequence:
-      - service: reminders.create
+      - service: btoddb_ha_reminders.create
         data:
           when: "{{ when }}"
           in_minutes: "{{ in_minutes }}"

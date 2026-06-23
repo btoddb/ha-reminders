@@ -6,5 +6,5 @@ cd "$(dirname "$0")/.."
 
 # Lint/format only our integration. Everything else under custom_components/ is a
 # vendored third-party integration kept for local testing and must not be touched.
-ruff format custom_components/btoddb-ha-reminders
-ruff check custom_components/btoddb-ha-reminders --fix
+ruff format custom_components/btoddb_ha_reminders
+ruff check custom_components/btoddb_ha_reminders --fix

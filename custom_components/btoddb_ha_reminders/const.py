@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-DOMAIN = "btoddb-ha-reminders"
+DOMAIN = "btoddb_ha_reminders"
 
 # Config / option keys.
 CONF_NOTIFY_SERVICE = "notify_service"
@@ -22,7 +22,7 @@ NOTIFY_DATA: dict[str, object] = {
     "ttl": 0,
     "priority": "high",
     "importance": "high",
-    "channel": "Reminders",
+    "channel": "BToddB Reminders",
 }
 
 # Storage (.storage/reminders).
@@ -32,6 +32,6 @@ STORAGE_VERSION = 1
 # Delivery loop cadence (RM-6): poll every minute, not the calendar trigger.
 DELIVERY_INTERVAL_MINUTES = 1
 
-# The calendar entity is named "Reminders" so its entity_id resolves to
+# The calendar entity is named "BToddB Reminders" so its entity_id resolves to
 # calendar.reminders, keeping the existing dashboard calendar card (RM-8) working.
-CALENDAR_ENTITY_NAME = "Reminders"
+CALENDAR_ENTITY_NAME = "BToddB Reminders"

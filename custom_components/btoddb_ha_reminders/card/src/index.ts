@@ -20,7 +20,7 @@ console.info(
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "btoddb-reminders-card",
-  name: "Reminders",
+  name: "BToddB Reminders",
   description: "Create reminders and see the upcoming ones.",
   preview: false,
   documentationURL: "https://github.com/btoddb/ha-reminders",

@@ -2,8 +2,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "Reminders",
-        "description": "Reminders are delivered as a high-priority push to a notify service.",
+        "title": "BToddB Reminders",
+        "description": "BToddB Reminders are delivered as a high-priority push to a notify service.",
         "data": {
           "notify_service": "Notify service"
         },
@@ -13,13 +13,13 @@
       }
     },
     "abort": {
-      "single_instance_allowed": "Reminders is already configured."
+      "single_instance_allowed": "BToddB Reminders is already configured."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Reminders",
+        "title": "BToddB Reminders",
         "data": {
           "notify_service": "Notify service"
         },

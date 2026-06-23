@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 def load_module(name: str) -> ModuleType:
     """Load ``<package>/<name>.py`` directly, bypassing the package __init__."""
     path = Path(__file__).resolve().parent.parent / f"{name}.py"
-    mod_name = f"reminders_{name}"
+    mod_name = f"btoddb_reminders_{name}"
     spec = importlib.util.spec_from_file_location(mod_name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
