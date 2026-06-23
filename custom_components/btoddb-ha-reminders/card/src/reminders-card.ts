@@ -171,9 +171,9 @@ export class BtoddbRemindersCard extends LitElement {
     this._busy = true;
     this._error = "";
     try {
-      // `reminders.create` is a response-only service, so returnResponse must be true.
+      // `btoddb-ha-reminders.create` is a response-only service, so returnResponse must be true.
       await this.hass.callService(
-        "reminders",
+        "btoddb-ha-reminders",
         "create",
         { message, when: this._when },
         undefined,

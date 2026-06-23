@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-DOMAIN = "reminders"
+DOMAIN = "btoddb-ha-reminders"
 
 # Config / option keys.
 CONF_NOTIFY_SERVICE = "notify_service"
