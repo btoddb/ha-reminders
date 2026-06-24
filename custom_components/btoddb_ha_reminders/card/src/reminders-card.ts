@@ -70,6 +70,90 @@ function defaultWhen(): string {
   return toLocalInput(d);
 }
 
+export class BtoddbRemindersCardEditor extends LitElement {
+  static properties = {
+    hass: { attribute: false },
+    _config: { state: true },
+  };
+
+  hass!: Hass;
+  private _config: CardConfig = { type: "" };
+
+  setConfig(config: CardConfig): void {
+    this._config = config;
+  }
+
+  private _titleChanged(ev: Event): void {
+    const value = (ev.target as HTMLInputElement).value;
+    this._fireConfigChanged({ ...this._config, title: value });
+  }
+
+  private _entityChanged(ev: CustomEvent): void {
+    const value = ev.detail.value as string;
+    this._fireConfigChanged({ ...this._config, entity: value });
+  }
+
+  private _fireConfigChanged(config: CardConfig): void {
+    this._config = config;
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  render() {
+    if (!this.hass || !this._config) return html``;
+    return html`
+      <div class="card-config">
+        <input
+          class="title-field"
+          type="text"
+          placeholder="Title (optional)"
+          .value=${this._config.title ?? ""}
+          @change=${this._titleChanged}
+        />
+        <ha-entity-picker
+          .hass=${this.hass}
+          .value=${this._config.entity ?? ""}
+          .label=${"Calendar entity"}
+          .includeDomains=${["calendar"]}
+          @value-changed=${this._entityChanged}
+        ></ha-entity-picker>
+      </div>
+    `;
+  }
+
+  static styles = css`
+    .card-config {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 16px;
+    }
+    .title-field,
+    ha-entity-picker {
+      width: 100%;
+    }
+    .title-field {
+      height: 40px;
+      padding: 0 8px;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 4px;
+      background: var(--card-background-color, #fff);
+      color: var(--primary-text-color, #212121);
+      color-scheme: light dark;
+      font-family: inherit;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+  `;
+}
+
+customElements.define("btoddb-reminders-card-editor", BtoddbRemindersCardEditor);
+
 export class BtoddbRemindersCard extends LitElement {
   static properties = {
     hass: { attribute: false },
@@ -93,9 +177,17 @@ export class BtoddbRemindersCard extends LitElement {
   private _lastSignature = "";
   private _refreshTimer?: number;
 
+  static getConfigElement() {
+    return document.createElement("btoddb-reminders-card-editor");
+  }
+
+  static getStubConfig() {
+    return {};
+  }
+
   setConfig(config: CardConfig): void {
     this._config = config ?? { type: "" };
-    this._entity = config?.entity ?? DEFAULT_ENTITY;
+    this._entity = config?.entity ?? "";
   }
 
   getCardSize(): number {
@@ -127,6 +219,11 @@ export class BtoddbRemindersCard extends LitElement {
 
   private async _fetch(): Promise<void> {
     if (!this.hass) return;
+    if (!this._entity) {
+      this._error = "No calendar entity configured. Edit the card to select one.";
+      this._items = [];
+      return;
+    }
     if (!this.hass.states[this._entity]) {
       this._error = `Entity ${this._entity} not found. Is the Reminders integration set up?`;
       this._items = [];
@@ -382,5 +479,6 @@ if (!customElements.get("btoddb-reminders-card")) {
 declare global {
   interface HTMLElementTagNameMap {
     "btoddb-reminders-card": BtoddbRemindersCard;
+    "btoddb-reminders-card-editor": BtoddbRemindersCardEditor;
   }
 }

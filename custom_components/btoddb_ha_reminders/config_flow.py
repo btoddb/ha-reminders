@@ -21,7 +21,13 @@ from homeassistant.config_entries import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
 
-from .const import CONF_NOTIFY_SERVICE, DEFAULT_NOTIFY_SERVICE, DOMAIN
+from .const import (
+    CONF_CALENDAR_NAME,
+    CONF_NOTIFY_SERVICE,
+    DEFAULT_CALENDAR_NAME,
+    DEFAULT_NOTIFY_SERVICE,
+    DOMAIN,
+)
 
 
 def _notify_services(hass: HomeAssistant) -> list[str]:
@@ -31,23 +37,44 @@ def _notify_services(hass: HomeAssistant) -> list[str]:
     )
 
 
-def _schema(hass: HomeAssistant, default_notify: str) -> vol.Schema:
+def _notify_selector(
+    hass: HomeAssistant, default_notify: str
+) -> selector.SelectSelector:
     # Build the dropdown from the live notify services. The current value is prepended
     # if it isn't in the list (e.g. an already-configured service that is temporarily
     # offline), so the options flow never silently resets an existing entry.
     options = _notify_services(hass)
     if default_notify and default_notify not in options:
         options = [default_notify, *options]
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=options,
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        )
+    )
+
+
+def _user_schema(
+    hass: HomeAssistant, default_name: str, default_notify: str
+) -> vol.Schema:
     return vol.Schema(
         {
             vol.Required(
-                CONF_NOTIFY_SERVICE, default=default_notify
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=options,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            )
+                CONF_CALENDAR_NAME, default=default_name
+            ): vol.All(selector.TextSelector(), vol.Length(min=1)),
+            vol.Required(CONF_NOTIFY_SERVICE, default=default_notify): _notify_selector(
+                hass, default_notify
+            ),
+        }
+    )
+
+
+def _options_schema(hass: HomeAssistant, default_notify: str) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(CONF_NOTIFY_SERVICE, default=default_notify): _notify_selector(
+                hass, default_notify
+            ),
         }
     )
 
@@ -60,14 +87,18 @@ class RemindersConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle the (only) setup step: pick the notify target."""
+        """Handle the (only) setup step: pick the calendar name and notify target."""
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
         if user_input is not None:
-            return self.async_create_entry(title="BToddB Reminders", data=user_input)
-        # Pass "" so the picker starts with no pre-selection; notify.notify would only
-        # appear as a phantom option if it isn't actually registered.
-        return self.async_show_form(step_id="user", data_schema=_schema(self.hass, ""))
+            title = user_input[CONF_CALENDAR_NAME]
+            return self.async_create_entry(title=title, data=user_input)
+        # Pass "" as the notify default so the picker starts with no pre-selection;
+        # notify.notify would only appear as a phantom option if it isn't registered.
+        return self.async_show_form(
+            step_id="user",
+            data_schema=_user_schema(self.hass, DEFAULT_CALENDAR_NAME, ""),
+        )
 
     @staticmethod
     @callback
@@ -89,5 +120,5 @@ class RemindersOptionsFlow(OptionsFlow):
             CONF_NOTIFY_SERVICE
         ) or self.config_entry.data.get(CONF_NOTIFY_SERVICE, DEFAULT_NOTIFY_SERVICE)
         return self.async_show_form(
-            step_id="init", data_schema=_schema(self.hass, current)
+            step_id="init", data_schema=_options_schema(self.hass, current)
         )

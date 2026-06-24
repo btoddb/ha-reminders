@@ -5,9 +5,11 @@
         "title": "BToddB Reminders",
         "description": "BToddB Reminders are delivered as a notification through a notify service.",
         "data": {
+          "calendar_name": "Calendar name",
           "notify_service": "Notify service"
         },
         "data_description": {
+          "calendar_name": "Name for the calendar entity (e.g. \"BToddB Reminders\"). Determines the entity_id.",
           "notify_service": "Pick the notify service to push due reminders to (e.g. notify.persistent_notification, notify.mobile_app_DEVICE, or a notify group). See the README Configure section."
         }
       }
