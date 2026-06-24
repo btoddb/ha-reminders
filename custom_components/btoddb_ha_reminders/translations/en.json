@@ -8,7 +8,7 @@
           "notify_service": "Notify service"
         },
         "data_description": {
-          "notify_service": "Pick the notify service to push due reminders to (e.g. notify.persistent_notification, notify.mobile_app_<device>, or a notify group). See the README Configure section."
+          "notify_service": "Pick the notify service to push due reminders to (e.g. notify.persistent_notification, notify.mobile_app_DEVICE, or a notify group). See the README Configure section."
         }
       }
     },
@@ -24,7 +24,7 @@
           "notify_service": "Notify service"
         },
         "data_description": {
-          "notify_service": "Pick the notify service to push due reminders to (e.g. notify.persistent_notification, notify.mobile_app_<device>, or a notify group). See the README Configure section."
+          "notify_service": "Pick the notify service to push due reminders to (e.g. notify.persistent_notification, notify.mobile_app_DEVICE, or a notify group). See the README Configure section."
         }
       }
     }
