@@ -72,11 +72,7 @@ class _FakeEntry:
 
 
 def _resolve_entity(entry: _FakeEntry) -> str:
-    return (
-        entry.options.get(_CONF)
-        or entry.data.get(_CONF)
-        or _DEFAULT
-    )
+    return entry.options.get(_CONF) or entry.data.get(_CONF) or _DEFAULT
 
 
 def test_notify_entity_prefers_options_over_data():

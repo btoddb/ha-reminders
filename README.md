@@ -22,7 +22,7 @@ difference between reminders that work and reminders that randomly fail.**
 - **`calendar.btoddb_reminders`** — a calendar entity listing upcoming reminders (use it with
   a calendar dashboard card).
 - **Delivery loop** — polls every minute and on startup; pushes any newly-due reminder
-  to your configured notify service as a high-priority notification. A durable,
+  to your configured notify service (`notify.*`) as a high-priority notification. A durable,
   6h-clamped watermark means reminders that came due while HA was down are still
   delivered on restart, without replaying an unbounded backlog.
 
@@ -41,29 +41,33 @@ and restart.
 ### Configure
 
 **Settings → Devices & Services → Add Integration → Reminders.** The setup picker
-shows all **notify entities** registered in your HA instance — select the one you
-want due reminders delivered to. You can change it later from the integration's
+is a dropdown of every **notify service** registered in your HA instance — pick the
+one you want due reminders delivered to. You can change it later from the integration's
 **Configure** button.
 
-#### What is a notify entity?
+#### Which notify service?
 
-Modern Home Assistant integrations register a *notify entity* (domain `notify`) rather
-than a legacy notify service. The most common source is the **Home Assistant Companion
-App** for Android or iOS: once the app is installed and your phone has connected to HA,
-a `notify.mobile_app_<device>` entity appears automatically.
+Anything in the `notify.*` domain works, because reminders are delivered by calling
+that service with a `title`, `message`, and `data` payload. Common choices:
 
-To verify your notify entity exists:
+- **`notify.persistent_notification`** — shows the reminder as a dismissible
+  notification in the HA UI (the bell menu). Always available, nothing to install, and
+  a good default for testing.
+- **`notify.mobile_app_<device>`** — pushes to a phone/tablet running the **Home
+  Assistant Companion App** ([iOS](https://apps.apple.com/app/home-assistant/id1099568401) /
+  [Android](https://play.google.com/store/apps/details?id=io.homeassistant.companion.android)).
+  The service appears automatically once the app has connected to your HA instance.
+- **A notify group** (e.g. `notify.btoddb`) — fan a reminder out to several targets at
+  once. Define one under **Settings → Devices & Services → Helpers**, or in YAML with
+  the [`notify` group platform](https://www.home-assistant.io/integrations/group/#notify-groups).
 
-1. **Settings → Devices & Services → Entities** and filter by domain `notify`, or
-2. Open **Developer Tools → States** and look for entities starting with `notify.`.
+To see what's available on your instance, open **Developer Tools → Actions** and type
+`notify.` — every registered service is listed there (the same set the picker shows).
 
-If the picker is empty, the Companion App is not yet connected. Install it from the
-[App Store](https://apps.apple.com/app/home-assistant/id1099568401) or
-[Google Play](https://play.google.com/store/apps/details?id=io.homeassistant.companion.android),
-sign in to your HA instance, and the entity will appear within seconds.
-
-Other integrations that register notify entities include pushover, ntfy, and any
-integration that uses HA's modern `NotifyEntity` base class.
+> **Note:** the picker lists notify *services*, not the newer notify *entities*. This is
+> deliberate — persistent notifications and notify groups are only exposed as services,
+> never as entities, so a service picker is the only way to reach them. The field also
+> accepts a typed-in value if the service you want isn't registered yet.
 
 ## Wiring up the conversation agent
 
