@@ -108,11 +108,13 @@ export class BtoddbRemindersCardEditor extends LitElement {
     if (!this.hass || !this._config) return html``;
     return html`
       <div class="card-config">
-        <ha-textfield
-          .label=${"Title (optional)"}
+        <input
+          class="title-field"
+          type="text"
+          placeholder="Title (optional)"
           .value=${this._config.title ?? ""}
           @change=${this._titleChanged}
-        ></ha-textfield>
+        />
         <ha-entity-picker
           .hass=${this.hass}
           .value=${this._config.entity ?? ""}
@@ -131,9 +133,21 @@ export class BtoddbRemindersCardEditor extends LitElement {
       gap: 16px;
       padding: 16px;
     }
-    ha-textfield,
+    .title-field,
     ha-entity-picker {
       width: 100%;
+    }
+    .title-field {
+      height: 40px;
+      padding: 0 8px;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 4px;
+      background: var(--card-background-color, #fff);
+      color: var(--primary-text-color, #212121);
+      color-scheme: light dark;
+      font-family: inherit;
+      font-size: 14px;
+      box-sizing: border-box;
     }
   `;
 }
@@ -168,12 +182,12 @@ export class BtoddbRemindersCard extends LitElement {
   }
 
   static getStubConfig() {
-    return { entity: DEFAULT_ENTITY };
+    return {};
   }
 
   setConfig(config: CardConfig): void {
     this._config = config ?? { type: "" };
-    this._entity = config?.entity ?? DEFAULT_ENTITY;
+    this._entity = config?.entity ?? "";
   }
 
   getCardSize(): number {
@@ -205,6 +219,11 @@ export class BtoddbRemindersCard extends LitElement {
 
   private async _fetch(): Promise<void> {
     if (!this.hass) return;
+    if (!this._entity) {
+      this._error = "No calendar entity configured. Edit the card to select one.";
+      this._items = [];
+      return;
+    }
     if (!this.hass.states[this._entity]) {
       this._error = `Entity ${this._entity} not found. Is the Reminders integration set up?`;
       this._items = [];

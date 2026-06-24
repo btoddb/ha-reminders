@@ -61,7 +61,7 @@ def _user_schema(
         {
             vol.Required(
                 CONF_CALENDAR_NAME, default=default_name
-            ): selector.TextSelector(),
+            ): vol.All(selector.TextSelector(), vol.Length(min=1)),
             vol.Required(CONF_NOTIFY_SERVICE, default=default_notify): _notify_selector(
                 hass, default_notify
             ),
