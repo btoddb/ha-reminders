@@ -29,7 +29,7 @@ def _schema(default_notify: str) -> vol.Schema:
         {
             vol.Required(
                 CONF_NOTIFY_SERVICE, default=default_notify
-            ): selector.TextSelector()
+            ): selector.NotifySelector()
         }
     )
 

@@ -8,7 +8,7 @@
           "notify_service": "Notify service"
         },
         "data_description": {
-          "notify_service": "The notify service to push due reminders to, e.g. notify.btoddb."
+          "notify_service": "Select the notification service to push due reminders to."
         }
       }
     },
@@ -24,7 +24,7 @@
           "notify_service": "Notify service"
         },
         "data_description": {
-          "notify_service": "The notify service to push due reminders to, e.g. notify.btoddb."
+          "notify_service": "Select the notification service to push due reminders to."
         }
       }
     }
