@@ -11,6 +11,7 @@ const = load_module("const")
 ReminderEvent = delivery.ReminderEvent
 due_events = delivery.due_events
 effective_watermark = delivery.effective_watermark
+resolve_notify_target = delivery.resolve_notify_target
 
 TZ = UTC
 NOW = datetime(2026, 6, 21, 12, 0, tzinfo=TZ)
@@ -56,38 +57,26 @@ def test_nothing_due_returns_empty():
 
 
 # ---------------------------------------------------------------------------
-# _notify_target() round-trip: mirrors ReminderDelivery._notify_target()
-# (ReminderDelivery lives in __init__.py which has HA imports not loadable
-# here, so we test the identical resolution+parse logic using the same constants.)
+# resolve_notify_target() round-trip — the HA-free helper used by
+# ReminderDelivery._notify_target() in __init__.py.
 # ---------------------------------------------------------------------------
 
 _CONF = const.CONF_NOTIFY_SERVICE
 
 
-class _FakeEntry:
-    def __init__(self, options=None, data=None):
-        self.options = options or {}
-        self.data = data or {}
-
-
-def _resolve_service(entry: _FakeEntry) -> tuple[str, str]:
-    configured = entry.options.get(_CONF) or entry.data.get(_CONF) or ""
-    domain, _, service = configured.partition(".")
-    return (domain or "notify"), (service or "notify")
-
-
-def test_notify_service_prefers_options_over_data():
-    e = _FakeEntry(
-        options={_CONF: "notify.mobile_app_pixel"}, data={_CONF: "notify.data_svc"}
+def test_resolve_notify_target_parses_domain_and_service():
+    assert resolve_notify_target("notify.mobile_app_pixel") == (
+        "notify",
+        "mobile_app_pixel",
     )
-    assert _resolve_service(e) == ("notify", "mobile_app_pixel")
 
 
-def test_notify_service_falls_back_to_data_when_no_options():
-    e = _FakeEntry(data={_CONF: "notify.mobile_app_x"})
-    assert _resolve_service(e) == ("notify", "mobile_app_x")
+def test_resolve_notify_target_defaults_service_when_empty():
+    assert resolve_notify_target("") == ("notify", "notify")
 
 
-def test_notify_service_partition_parses_domain_and_name():
-    e = _FakeEntry(options={_CONF: "notify.persistent_notification"})
-    assert _resolve_service(e) == ("notify", "persistent_notification")
+def test_resolve_notify_target_parses_persistent_notification():
+    assert resolve_notify_target("notify.persistent_notification") == (
+        "notify",
+        "persistent_notification",
+    )
