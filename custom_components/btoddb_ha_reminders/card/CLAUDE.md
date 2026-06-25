@@ -4,15 +4,23 @@ The `btoddb-reminders-card` Lovelace card for the Reminders integration.
 
 ## What it does
 
-- An add row (native text `input` + native `datetime-local` input + `mwc-button`) that
+- A **Time / Location** tab toggle picks which add-row shows.
+- **Time** add row (native text `input` + native `datetime-local` input + `mwc-button`)
   calls the **response-only** `btoddb_ha_reminders.create` service (`returnResponse` must be
   `true`). The message uses a styled native `<input>` rather than `ha-textfield` so it
   always renders even where that HA element isn't loaded.
-- A list of upcoming reminders read from the `calendar.btoddb_reminders` entity via the
-  calendar REST API (`GET calendars/<entity>?start=&end=`), each row with an
-  `ha-icon-button` that deletes via the `calendar/event/delete` websocket command.
+- **Location** add row (native text `input` + two `ha-entity-picker`s for person/zone + a
+  native `<select>` for enter/leave + `mwc-button`) calls `btoddb_ha_reminders.create_location`.
+- A single merged list shows both kinds of reminder:
+  - Time reminders read from the `calendar.btoddb_reminders` entity via the calendar REST
+    API (`GET calendars/<entity>?start=&end=`); deleted via the `calendar/event/delete`
+    websocket command.
+  - Location reminders read straight off the `sensor.btoddb_location_reminders` entity's
+    `reminders` attribute (no extra fetch); deleted via `btoddb_ha_reminders.delete_location`.
+    Delivered ones render struck-through with their delivery time and linger 7 days.
 - The list refreshes when the calendar entity's `last_updated` changes (add / fire /
-  delete) and once a minute (so times stay fresh and fired reminders drop off).
+  delete) and once a minute (so times stay fresh and fired reminders drop off); location
+  rows re-render on any `hass` update since they read from entity state.
 
 It is built from **stock HA web components** (`ha-card`, `ha-icon`, `ha-icon-button`,
 `mwc-button`) plus native `<input>`s and Lit — no `custom-card-helpers`.

@@ -45,13 +45,38 @@ interface CalendarEvent {
   start: { dateTime?: string; date?: string };
 }
 
-interface ReminderItem {
+interface TimeItem {
+  kind: "time";
   uid: string;
   summary: string;
   start: Date;
 }
 
+interface LocationItem {
+  kind: "location";
+  uid: string;
+  summary: string;
+  person: string;
+  zone: string;
+  trigger: string;
+  deliveredAt: Date | null;
+}
+
+interface LocationAttr {
+  uid: string;
+  summary: string;
+  person: string;
+  zone: string;
+  trigger: string;
+  delivered_at: string | null;
+}
+
 const DEFAULT_ENTITY = "calendar.btoddb_reminders";
+// Default entity_id of the location-reminders sensor. Used as a fallback only — the
+// sensor is normally found by its marker attribute so a registry rename can't hide it.
+const LOCATION_SENSOR_DEFAULT = "sensor.btoddb_location_reminders";
+// Attribute the integration stamps on its location sensor for discovery.
+const LOCATION_SENSOR_MARKER = "btoddb_ha_reminders_location";
 
 const pad = (n: number): string => String(n).padStart(2, "0");
 
@@ -159,17 +184,27 @@ export class BtoddbRemindersCard extends LitElement {
     hass: { attribute: false },
     _config: { state: true },
     _items: { state: true },
+    _mode: { state: true },
     _message: { state: true },
     _when: { state: true },
+    _locMessage: { state: true },
+    _locPerson: { state: true },
+    _locZone: { state: true },
+    _locTrigger: { state: true },
     _busy: { state: true },
     _error: { state: true },
   };
 
   hass!: Hass;
   private _config: CardConfig = { type: "" };
-  private _items: ReminderItem[] = [];
+  private _items: TimeItem[] = [];
+  private _mode: "time" | "location" = "time";
   private _message = "";
   private _when = defaultWhen();
+  private _locMessage = "";
+  private _locPerson = "";
+  private _locZone = "";
+  private _locTrigger = "enter";
   private _busy = false;
   private _error = "";
 
@@ -191,7 +226,8 @@ export class BtoddbRemindersCard extends LitElement {
   }
 
   getCardSize(): number {
-    return 3 + Math.min(this._items.length, 8);
+    const locCount = this._locationItems().length;
+    return 3 + Math.min(this._items.length + locCount, 8);
   }
 
   connectedCallback(): void {
@@ -242,11 +278,14 @@ export class BtoddbRemindersCard extends LitElement {
       );
       const cutoff = Date.now() - 60_000;
       this._items = (events ?? [])
-        .map((e) => ({
-          uid: e.uid ?? "",
-          summary: e.summary,
-          start: new Date(e.start.dateTime ?? e.start.date ?? ""),
-        }))
+        .map(
+          (e): TimeItem => ({
+            kind: "time",
+            uid: e.uid ?? "",
+            summary: e.summary,
+            start: new Date(e.start.dateTime ?? e.start.date ?? ""),
+          }),
+        )
         .filter((i) => i.start.getTime() >= cutoff)
         .sort((a, b) => a.start.getTime() - b.start.getTime());
       this._error = "";
@@ -301,6 +340,89 @@ export class BtoddbRemindersCard extends LitElement {
     }
   }
 
+  private async _addLocation(): Promise<void> {
+    const message = this._locMessage.trim();
+    if (!message) {
+      this._error = "Enter a reminder message.";
+      return;
+    }
+    if (!this._locPerson) {
+      this._error = "Pick a person to track.";
+      return;
+    }
+    if (!this._locZone) {
+      this._error = "Pick a zone.";
+      return;
+    }
+    this._busy = true;
+    this._error = "";
+    try {
+      await this.hass.callService("btoddb_ha_reminders", "create_location", {
+        message,
+        person: this._locPerson,
+        zone: this._locZone,
+        trigger: this._locTrigger,
+      });
+      this._locMessage = "";
+      this._locPerson = "";
+      this._locZone = "";
+      this._locTrigger = "enter";
+    } catch (err) {
+      this._error = `Could not create reminder: ${this._msg(err)}`;
+    } finally {
+      this._busy = false;
+    }
+  }
+
+  private async _deleteLocation(uid: string): Promise<void> {
+    if (!uid) return;
+    try {
+      await this.hass.callService("btoddb_ha_reminders", "delete_location", {
+        uid,
+      });
+    } catch (err) {
+      this._error = `Could not delete reminder: ${this._msg(err)}`;
+    }
+  }
+
+  /**
+   * Entity id of the location sensor, discovered by its marker attribute so a registry
+   * rename doesn't hide it. Falls back to the default id if the marker isn't found yet
+   * (e.g. before the entity has loaded).
+   */
+  private _locationSensorId(): string {
+    const states = this.hass?.states ?? {};
+    if (states[LOCATION_SENSOR_DEFAULT]?.attributes?.[LOCATION_SENSOR_MARKER]) {
+      return LOCATION_SENSOR_DEFAULT;
+    }
+    for (const [id, st] of Object.entries(states)) {
+      if (id.startsWith("sensor.") && st.attributes?.[LOCATION_SENSOR_MARKER]) {
+        return id;
+      }
+    }
+    return LOCATION_SENSOR_DEFAULT;
+  }
+
+  /** Location reminders read straight off the sensor's attributes (stays live). */
+  private _locationItems(): LocationItem[] {
+    const st = this.hass?.states[this._locationSensorId()];
+    const raw = (st?.attributes?.reminders as LocationAttr[] | undefined) ?? [];
+    return raw.map((r) => ({
+      kind: "location",
+      uid: r.uid,
+      summary: r.summary,
+      person: r.person,
+      zone: r.zone,
+      trigger: r.trigger,
+      deliveredAt: r.delivered_at ? new Date(r.delivered_at) : null,
+    }));
+  }
+
+  private _entityName(entityId: string): string {
+    const st = this.hass?.states[entityId];
+    return (st?.attributes?.friendly_name as string) ?? entityId;
+  }
+
   private _msg(err: unknown): string {
     if (err && typeof err === "object" && "message" in err) {
       return String((err as { message: unknown }).message);
@@ -322,65 +444,180 @@ export class BtoddbRemindersCard extends LitElement {
     }
   }
 
+  private _renderTimeAddRow() {
+    return html`
+      <div class="add-row">
+        <input
+          class="message"
+          type="text"
+          placeholder="New reminder"
+          .value=${this._message}
+          @input=${(e: Event) => {
+        this._message = (e.target as HTMLInputElement).value;
+      }}
+          @keydown=${(e: KeyboardEvent) => {
+        if (e.key === "Enter") this._add();
+      }}
+        />
+        <input
+          class="when"
+          type="datetime-local"
+          .value=${this._when}
+          @input=${(e: Event) => {
+        this._when = (e.target as HTMLInputElement).value;
+      }}
+        />
+        <mwc-button raised ?disabled=${this._busy} @click=${() => this._add()}>
+          Add
+        </mwc-button>
+      </div>
+    `;
+  }
+
+  private _renderLocationAddRow() {
+    return html`
+      <div class="add-row">
+        <input
+          class="message"
+          type="text"
+          placeholder="New reminder"
+          .value=${this._locMessage}
+          @input=${(e: Event) => {
+        this._locMessage = (e.target as HTMLInputElement).value;
+      }}
+        />
+        <ha-entity-picker
+          class="picker"
+          .hass=${this.hass}
+          .value=${this._locPerson}
+          .label=${"Person"}
+          .includeDomains=${["person"]}
+          @value-changed=${(e: CustomEvent) => {
+        this._locPerson = e.detail.value as string;
+      }}
+        ></ha-entity-picker>
+        <ha-entity-picker
+          class="picker"
+          .hass=${this.hass}
+          .value=${this._locZone}
+          .label=${"Zone"}
+          .includeDomains=${["zone"]}
+          @value-changed=${(e: CustomEvent) => {
+        this._locZone = e.detail.value as string;
+      }}
+        ></ha-entity-picker>
+        <select
+          class="trigger"
+          .value=${this._locTrigger}
+          @change=${(e: Event) => {
+        this._locTrigger = (e.target as HTMLSelectElement).value;
+      }}
+        >
+          <option value="enter">Entering</option>
+          <option value="leave">Leaving</option>
+        </select>
+        <mwc-button
+          raised
+          ?disabled=${this._busy}
+          @click=${() => this._addLocation()}
+        >
+          Add
+        </mwc-button>
+      </div>
+    `;
+  }
+
+  private _renderTimeItem(item: TimeItem) {
+    return html`
+      <div class="item">
+        <ha-icon class="leading" icon="mdi:alarm"></ha-icon>
+        <div class="text">
+          <span class="summary">${item.summary}</span>
+          <span class="time">${this._formatTime(item.start)}</span>
+        </div>
+        <ha-icon-button
+          .label=${"Delete reminder"}
+          @click=${() => this._delete(item.uid)}
+        >
+          <ha-icon icon="mdi:delete-outline"></ha-icon>
+        </ha-icon-button>
+      </div>
+    `;
+  }
+
+  private _renderLocationItem(item: LocationItem) {
+    const verb = item.trigger === "enter" ? "Entering" : "Leaving";
+    const where = `${verb} ${this._entityName(item.zone)} · ${this._entityName(
+      item.person,
+    )}`;
+    const sub = item.deliveredAt
+      ? `Delivered ${this._formatTime(item.deliveredAt)} · ${where}`
+      : where;
+    return html`
+      <div class="item ${item.deliveredAt ? "delivered" : ""}">
+        <ha-icon class="leading" icon="mdi:map-marker"></ha-icon>
+        <div class="text">
+          <span class="summary">${item.summary}</span>
+          <span class="time">${sub}</span>
+        </div>
+        <ha-icon-button
+          .label=${"Delete reminder"}
+          @click=${() => this._deleteLocation(item.uid)}
+        >
+          <ha-icon icon="mdi:delete-outline"></ha-icon>
+        </ha-icon-button>
+      </div>
+    `;
+  }
+
   render() {
     const title = this._config.title ?? "BToddB Reminders";
+    const locItems = this._locationItems();
+    const locUndelivered = locItems.filter((i) => !i.deliveredAt);
+    const locDelivered = locItems
+      .filter((i) => i.deliveredAt)
+      .sort((a, b) => b.deliveredAt!.getTime() - a.deliveredAt!.getTime());
+    const total = this._items.length + locItems.length;
     return html`
       <ha-card .header=${title}>
         <div class="content">
-          <div class="add-row">
-            <input
-              class="message"
-              type="text"
-              placeholder="New reminder"
-              .value=${this._message}
-              @input=${(e: Event) => {
-        this._message = (e.target as HTMLInputElement).value;
+          <div class="tabs">
+            <button
+              class="tab ${this._mode === "time" ? "active" : ""}"
+              @click=${() => {
+        this._mode = "time";
       }}
-              @keydown=${(e: KeyboardEvent) => {
-        if (e.key === "Enter") this._add();
-      }}
-            />
-            <input
-              class="when"
-              type="datetime-local"
-              .value=${this._when}
-              @input=${(e: Event) => {
-        this._when = (e.target as HTMLInputElement).value;
-      }}
-            />
-            <mwc-button
-              raised
-              ?disabled=${this._busy}
-              @click=${() => this._add()}
             >
-              Add
-            </mwc-button>
+              Time
+            </button>
+            <button
+              class="tab ${this._mode === "location" ? "active" : ""}"
+              @click=${() => {
+        this._mode = "location";
+      }}
+            >
+              Location
+            </button>
           </div>
+
+          ${this._mode === "time"
+        ? this._renderTimeAddRow()
+        : this._renderLocationAddRow()}
 
           ${this._error
         ? html`<div class="error">${this._error}</div>`
         : nothing}
 
-          ${this._items.length === 0
-        ? html`<div class="empty">No upcoming reminders.</div>`
+          ${total === 0
+        ? html`<div class="empty">No reminders.</div>`
         : html`
                 <div class="list">
-                  ${this._items.map(
-          (item) => html`
-                      <div class="item">
-                        <ha-icon class="leading" icon="mdi:alarm"></ha-icon>
-                        <div class="text">
-                          <span class="summary">${item.summary}</span>
-                          <span class="time">${this._formatTime(item.start)}</span>
-                        </div>
-                        <ha-icon-button
-                          .label=${"Delete reminder"}
-                          @click=${() => this._delete(item.uid)}
-                        >
-                          <ha-icon icon="mdi:delete-outline"></ha-icon>
-                        </ha-icon-button>
-                      </div>
-                    `,
+                  ${this._items.map((item) => this._renderTimeItem(item))}
+                  ${locUndelivered.map((item) =>
+          this._renderLocationItem(item),
+        )}
+                  ${locDelivered.map((item) =>
+          this._renderLocationItem(item),
         )}
                 </div>
               `}
@@ -393,6 +630,27 @@ export class BtoddbRemindersCard extends LitElement {
     .content {
       padding: 0 16px 12px;
     }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      padding-top: 8px;
+    }
+    .tab {
+      flex: 0 0 auto;
+      height: 32px;
+      padding: 0 14px;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 16px;
+      background: var(--card-background-color, #fff);
+      color: var(--secondary-text-color, #727272);
+      font-family: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .tab.active {
+      border-color: var(--primary-color, #03a9f4);
+      color: var(--primary-color, #03a9f4);
+    }
     .add-row {
       display: flex;
       align-items: center;
@@ -401,7 +659,8 @@ export class BtoddbRemindersCard extends LitElement {
       flex-wrap: wrap;
     }
     .message,
-    .when {
+    .when,
+    .trigger {
       height: 40px;
       padding: 0 8px;
       border: 1px solid var(--divider-color, #e0e0e0);
@@ -417,8 +676,13 @@ export class BtoddbRemindersCard extends LitElement {
       flex: 1 1 160px;
       min-width: 140px;
     }
-    .when {
+    .when,
+    .trigger {
       flex: 0 0 auto;
+    }
+    .picker {
+      flex: 1 1 140px;
+      min-width: 130px;
     }
     .error {
       color: var(--error-color, #db4437);
@@ -460,6 +724,13 @@ export class BtoddbRemindersCard extends LitElement {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    .item.delivered .summary {
+      text-decoration: line-through;
+      color: var(--secondary-text-color, #727272);
+    }
+    .item.delivered .leading {
+      color: var(--secondary-text-color, #727272);
     }
     .time {
       color: var(--secondary-text-color, #727272);

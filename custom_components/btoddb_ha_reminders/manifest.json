@@ -8,7 +8,9 @@
   "dependencies": [
     "frontend",
     "http",
-    "lovelace"
+    "lovelace",
+    "person",
+    "zone"
   ],
   "documentation": "https://github.com/btoddb/btoddb-ha-reminders",
   "integration_type": "service",

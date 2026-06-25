@@ -35,3 +35,55 @@ create:
           min: 0
           mode: box
           unit_of_measurement: minutes
+
+create_location:
+  name: Create location reminder
+  description: >-
+    Add a reminder delivered the moment a person enters or leaves a Home Assistant
+    zone. Fires once, then stays visible (crossed off) for 7 days.
+  fields:
+    message:
+      name: Message
+      description: What to remind about, in the user's own words.
+      required: true
+      example: grab the dry cleaning
+      selector:
+        text:
+    person:
+      name: Person
+      description: The person entity whose location triggers the reminder.
+      required: true
+      example: person.todd
+      selector:
+        entity:
+          domain: person
+    zone:
+      name: Zone
+      description: The zone to watch.
+      required: true
+      example: zone.work
+      selector:
+        entity:
+          domain: zone
+    trigger:
+      name: Trigger
+      description: Deliver when the person enters the zone, or when they leave it.
+      required: true
+      example: enter
+      selector:
+        select:
+          options:
+            - enter
+            - leave
+
+delete_location:
+  name: Delete location reminder
+  description: Remove a location reminder by its unique id.
+  fields:
+    uid:
+      name: UID
+      description: The unique id of the location reminder to delete.
+      required: true
+      example: 1a2b3c4d
+      selector:
+        text:

@@ -59,9 +59,9 @@ def _user_schema(
 ) -> vol.Schema:
     return vol.Schema(
         {
-            vol.Required(
-                CONF_CALENDAR_NAME, default=default_name
-            ): vol.All(selector.TextSelector(), vol.Length(min=1)),
+            vol.Required(CONF_CALENDAR_NAME, default=default_name): vol.All(
+                selector.TextSelector(), vol.Length(min=1)
+            ),
             vol.Required(CONF_NOTIFY_SERVICE, default=default_notify): _notify_selector(
                 hass, default_notify
             ),

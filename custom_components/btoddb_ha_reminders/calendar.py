@@ -18,7 +18,7 @@ from homeassistant.components.calendar import (
 )
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_CALENDAR_NAME, DEFAULT_CALENDAR_NAME, DOMAIN
+from .const import CONF_CALENDAR_NAME, DATA_STORE, DEFAULT_CALENDAR_NAME, DOMAIN
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -40,7 +40,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the reminders calendar entity from a config entry."""
-    store: ReminderStore = hass.data[DOMAIN][entry.entry_id]
+    store: ReminderStore = hass.data[DOMAIN][entry.entry_id][DATA_STORE]
     async_add_entities([ReminderCalendarEntity(store, entry)])
 
 

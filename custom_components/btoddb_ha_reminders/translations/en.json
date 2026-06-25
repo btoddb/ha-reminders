@@ -49,6 +49,38 @@
           "description": "Minutes from now, for relative delays. Takes priority over when when both are given."
         }
       }
+    },
+    "create_location": {
+      "name": "Create location reminder",
+      "description": "Add a reminder delivered the moment a person enters or leaves a zone. Fires once, then stays visible for 7 days.",
+      "fields": {
+        "message": {
+          "name": "Message",
+          "description": "What to remind about, in the user's own words."
+        },
+        "person": {
+          "name": "Person",
+          "description": "The person entity whose location triggers the reminder."
+        },
+        "zone": {
+          "name": "Zone",
+          "description": "The zone to watch."
+        },
+        "trigger": {
+          "name": "Trigger",
+          "description": "Deliver when the person enters the zone, or when they leave it."
+        }
+      }
+    },
+    "delete_location": {
+      "name": "Delete location reminder",
+      "description": "Remove a location reminder by its unique id.",
+      "fields": {
+        "uid": {
+          "name": "UID",
+          "description": "The unique id of the location reminder to delete."
+        }
+      }
     }
   }
 }

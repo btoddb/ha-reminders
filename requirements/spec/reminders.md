@@ -68,3 +68,51 @@ target with a backlog. The 6h floor only kicks in when the stored value is older
 that. A legitimate outage longer than 6h will therefore not re-deliver reminders that
 came due more than 6h before restart — a deliberate cap; per-event dedup would remove
 the tradeoff but is out of scope.
+
+## Location / zone reminders
+
+A second, independent kind of reminder (issue #2) delivered the moment a tracked person
+enters or leaves a Home Assistant **zone**, rather than at a clock time. It reuses the
+notify path and the same dashboard card but has its own pure-logic module
+(`location.py`), storage (`.storage/btoddb_ha_reminders_location`), and read surface
+(`sensor.btoddb_location_reminders`). Time-based rules (RM-*) are unaffected.
+
+**LOC-1 (constraint).** A location reminder names a `person` entity, a `zone` entity, and
+a `trigger` of `enter` or `leave`. When that person's state transitions **into** the zone
+(`old != zone, new == zone`) an `enter` reminder fires; when it transitions **out**
+(`old == zone, new != zone`) a `leave` reminder fires. A person's state is `"home"` for
+the home zone and the zone's **friendly name** for any other zone, so that is the value
+compared. Transitions where either side is `unknown`/`unavailable` are ignored. Delivery
+pushes to the same configured notify service as time reminders, with title "📍 Reminder".
+
+**LOC-2.** Detection is driven by `async_track_state_change_event` on the `person.*`
+entities referenced by **undelivered** reminders; the subscription is recomputed whenever
+the store changes, so the integration only wakes for people who have a pending reminder.
+
+**LOC-3 (constraint).** A location reminder is **one-shot**: the first matching transition
+that is **successfully pushed** stamps `delivered_at` and it never fires again. If the
+notify call raises, the reminder is left pending (not crossed off, not pruned) so a later
+matching transition can still deliver it — a reminder must never be marked delivered when
+it never reached the user.
+
+**LOC-4.** Location reminders persist in their own `Store`
+(`.storage/btoddb_ha_reminders_location`), separate from the time-based store, so neither
+needs migrating when the other changes.
+
+**LOC-5 (suggestion).** A delivered reminder is kept (crossed off, with its delivery
+timestamp) for **7 days** so the user can see when it fired, then pruned. Pruning runs on
+a light periodic sweep (hourly) so retention holds even for a person who stops moving.
+
+**LOC-6.** The reminders are surfaced to the dashboard card through the
+`sensor.btoddb_location_reminders` entity: its state is the count of undelivered reminders
+and its `reminders` attribute is the full list (undelivered + delivered-within-7-days).
+The card reads the list from the entity attributes and re-renders on entity updates,
+mirroring how it already watches the calendar entity.
+
+**LOC-7.** Location reminders are deletable at any time (delivered or not) via the
+`btoddb_ha_reminders.delete_location` service (the card's per-row delete), analogous to
+`calendar/event/delete` for time reminders.
+
+**LOC-out.** Non-zone locations (raw addresses) and a conversation-agent function for
+creating location reminders are out of scope for now; `zone` is stored as an entity_id
+string so an address-backed source can slot in later without reshaping the model.

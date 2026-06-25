@@ -27,9 +27,26 @@ NOTIFY_DATA: dict[str, object] = {
     "channel": "BToddB Reminders",
 }
 
+# Keys for the per-entry runtime data dict (holds both reminder stores).
+DATA_STORE = "store"
+DATA_LOCATION_STORE = "location_store"
+
 # Storage (.storage/reminders).
 STORAGE_KEY = DOMAIN
 STORAGE_VERSION = 1
 
+# Location reminders persist separately (.storage/btoddb_ha_reminders_location) so the
+# time-based store needs no migration (LOC-4).
+STORAGE_KEY_LOCATION = f"{DOMAIN}_location"
+STORAGE_VERSION_LOCATION = 1
+
 # Delivery loop cadence (RM-6): poll every minute, not the calendar trigger.
 DELIVERY_INTERVAL_MINUTES = 1
+
+# Notification presentation for a delivered location reminder (LOC-1). Same channel/
+# priority as time reminders; only the title differs so the user can tell them apart.
+NOTIFY_TITLE_LOCATION = "📍 Reminder"
+
+# A delivered location reminder lingers in the UI this long after it fires (LOC-5),
+# then is pruned to bound storage.
+LOCATION_RETENTION_DAYS = 7

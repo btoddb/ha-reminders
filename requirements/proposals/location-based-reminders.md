@@ -2,7 +2,7 @@
 
 Implement https://github.com/btoddb/btoddb-ha-reminders/issues/2
 
-**Status:** in progress
+**Status:** implemented (see `requirements/spec/reminders.md` LOC-* rules)
 **Touches:** location-based
 
 ## Goal
@@ -28,9 +28,9 @@ Update the dashboard card so a location reminder can be entered.  Not sure what 
 
 ## Acceptance criteria
 
-[ ] are reminders delivered timely
-[ ] can a user enter a reminder
-[ ] reminder is delivered when leaving a zone
-[ ] reminder is delivered when entering a zone
-[ ] user can review undelivered reminders
-[ ] user can see delivered reminders and the delivery time
+[x] are reminders delivered timely (fires on the zone state-change event — LOC-1/LOC-2)
+[x] can a user enter a reminder (Location tab on the card -> create_location service)
+[x] reminder is delivered when leaving a zone (trigger=leave — LOC-1)
+[x] reminder is delivered when entering a zone (trigger=enter — LOC-1)
+[x] user can review undelivered reminders (merged card list, undelivered first — LOC-6)
+[x] user can see delivered reminders and the delivery time (struck-through, kept 7 days — LOC-5)

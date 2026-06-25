@@ -25,7 +25,11 @@ from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.components.lovelace import LOVELACE_DATA
 from homeassistant.components.lovelace.resources import ResourceStorageCollection
-from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
+from homeassistant.const import (
+    EVENT_HOMEASSISTANT_STARTED,
+    STATE_HOME,
+    Platform,
+)
 from homeassistant.core import (
     CoreState,
     HomeAssistant,
@@ -36,15 +40,22 @@ from homeassistant.core import (
 )
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_interval,
+)
 from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_NOTIFY_SERVICE,
+    DATA_LOCATION_STORE,
+    DATA_STORE,
     DELIVERY_INTERVAL_MINUTES,
     DOMAIN,
+    LOCATION_RETENTION_DAYS,
     NOTIFY_DATA,
     NOTIFY_TITLE,
+    NOTIFY_TITLE_LOCATION,
 )
 from .delivery import (
     CATCHUP_FLOOR,
@@ -53,18 +64,22 @@ from .delivery import (
     effective_watermark,
     resolve_notify_target,
 )
+from .location import LocationReminder, transition_kind, triggered
+from .location_store import LocationReminderStore
 from .spoken_time import format_spoken_time
 from .store import ReminderStore
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from datetime import datetime
 
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import Event
+    from homeassistant.helpers.event import EventStateChangedData
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.CALENDAR]
+PLATFORMS: list[Platform] = [Platform.CALENDAR, Platform.SENSOR]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 # Frontend card: the built bundle in www/ is served at this URL and auto-registered
@@ -78,6 +93,14 @@ SERVICE_CREATE = "create"
 ATTR_MESSAGE = "message"
 ATTR_WHEN = "when"
 ATTR_IN_MINUTES = "in_minutes"
+
+SERVICE_CREATE_LOCATION = "create_location"
+SERVICE_DELETE_LOCATION = "delete_location"
+ATTR_PERSON = "person"
+ATTR_ZONE = "zone"
+ATTR_TRIGGER = "trigger"
+ATTR_UID = "uid"
+TRIGGER_VALUES = ("enter", "leave")
 
 
 def _optional_minutes(value: object) -> int | None:
@@ -102,22 +125,99 @@ CREATE_SCHEMA = vol.Schema(
     }
 )
 
+CREATE_LOCATION_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_MESSAGE): cv.string,
+        # Restrict to the actual domains (LOC-1): cv.entity_id alone would accept e.g.
+        # sensor.foo, creating a reminder that can never fire.
+        vol.Required(ATTR_PERSON): cv.entity_domain("person"),
+        vol.Required(ATTR_ZONE): cv.entity_domain("zone"),
+        vol.Required(ATTR_TRIGGER): vol.In(TRIGGER_VALUES),
+    }
+)
+
+DELETE_LOCATION_SCHEMA = vol.Schema({vol.Required(ATTR_UID): cv.string})
+
 # Keep pruned history a day past the catch-up floor so the calendar can still show the
 # most recent fired reminders without growing unbounded.
 PRUNE_RETENTION = CATCHUP_FLOOR + timedelta(days=1)
+
+# How often delivered location reminders are swept (LOC-5). Coarse: state-change-driven
+# pruning alone would never fire for a person who stops moving, so a light periodic
+# sweep guarantees the 7-day retention is honored.
+LOCATION_PRUNE_INTERVAL_HOURS = 1
+
+
+async def async_send_notification(
+    hass: HomeAssistant, domain: str, service: str, title: str, message: str
+) -> bool:
+    """
+    Push one reminder to the notify target (shared by time + location delivery).
+
+    Returns ``True`` on success and ``False`` if the notify call raised. Exceptions are
+    caught and logged so a single failed delivery never aborts the rest of a delivery
+    pass; the boolean lets the caller decide whether to record the reminder as delivered
+    (a location reminder must not be crossed off if it never reached the user).
+    """
+    try:
+        await hass.services.async_call(
+            domain,
+            service,
+            {"title": title, "message": message, "data": dict(NOTIFY_DATA)},
+            blocking=True,
+        )
+    except Exception:
+        _LOGGER.exception("Failed to deliver reminder %r", message)
+        return False
+    return True
+
+
+def _zone_value(hass: HomeAssistant, zone_entity_id: str) -> str:
+    """
+    Return the string a person's state takes while inside ``zone_entity_id``.
+
+    A person/device_tracker reads ``"home"`` (``STATE_HOME``) for the home zone and
+    the zone's **friendly name** for any other zone — so that is what we compare the
+    person's state against, not the zone's entity_id slug.
+    """
+    if zone_entity_id == "zone.home":
+        return STATE_HOME
+    state = hass.states.get(zone_entity_id)
+    if state is not None:
+        friendly = state.attributes.get("friendly_name")
+        if friendly:
+            return friendly
+    # Fallback when the zone entity isn't loaded: best-effort title-cased slug.
+    return zone_entity_id.split(".", 1)[-1].replace("_", " ").title()
+
+
+def _notify_target_for(entry: ConfigEntry) -> tuple[str, str]:
+    """Resolve the configured notify target for ``entry`` into ``(domain, service)``."""
+    configured = (
+        entry.options.get(CONF_NOTIFY_SERVICE)
+        or entry.data.get(CONF_NOTIFY_SERVICE)
+        or ""
+    )
+    return resolve_notify_target(configured)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Reminders from a config entry."""
     store = ReminderStore(hass)
     await store.async_load()
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = store
+    location_store = LocationReminderStore(hass)
+    await location_store.async_load()
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        DATA_STORE: store,
+        DATA_LOCATION_STORE: location_store,
+    }
 
     await _async_register_card(hass)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     _async_register_service(hass, store)
+    _async_register_location_services(hass, location_store)
 
     delivery = ReminderDelivery(hass, entry, store)
     entry.async_on_unload(
@@ -125,6 +225,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass,
             delivery.async_tick,
             timedelta(minutes=DELIVERY_INTERVAL_MINUTES),
+        )
+    )
+
+    # Location reminders fire on zone transitions, not on a timer; the delivery object
+    # subscribes to the referenced person entities, re-subscribing as reminders change.
+    location_delivery = LocationDelivery(hass, entry, location_store)
+    location_delivery.async_start()
+    entry.async_on_unload(location_delivery.async_stop)
+    entry.async_on_unload(
+        async_track_time_interval(
+            hass,
+            location_delivery.async_prune_tick,
+            timedelta(hours=LOCATION_PRUNE_INTERVAL_HOURS),
         )
     )
 
@@ -220,6 +333,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop(entry.entry_id, None)
         if not hass.data[DOMAIN]:
             hass.services.async_remove(DOMAIN, SERVICE_CREATE)
+            hass.services.async_remove(DOMAIN, SERVICE_CREATE_LOCATION)
+            hass.services.async_remove(DOMAIN, SERVICE_DELETE_LOCATION)
     return unload_ok
 
 
@@ -277,6 +392,41 @@ def _async_register_service(hass: HomeAssistant, store: ReminderStore) -> None:
     )
 
 
+@callback
+def _async_register_location_services(
+    hass: HomeAssistant, store: LocationReminderStore
+) -> None:
+    """Register the ``create_location`` / ``delete_location`` services (idempotent)."""
+    if hass.services.has_service(DOMAIN, SERVICE_CREATE_LOCATION):
+        return
+
+    async def _handle_create_location(call: ServiceCall) -> None:
+        reminder = LocationReminder(
+            uid=uuid.uuid4().hex,
+            summary=call.data[ATTR_MESSAGE],
+            person=call.data[ATTR_PERSON],
+            zone=call.data[ATTR_ZONE],
+            trigger=call.data[ATTR_TRIGGER],
+        )
+        await store.async_add_event(reminder)
+
+    async def _handle_delete_location(call: ServiceCall) -> None:
+        await store.async_delete_event(call.data[ATTR_UID])
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CREATE_LOCATION,
+        _handle_create_location,
+        schema=CREATE_LOCATION_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_DELETE_LOCATION,
+        _handle_delete_location,
+        schema=DELETE_LOCATION_SCHEMA,
+    )
+
+
 class ReminderDelivery:
     """Delivers due reminders to the configured notify service every minute."""
 
@@ -288,34 +438,105 @@ class ReminderDelivery:
         self._entry = entry
         self._store = store
 
-    def _notify_target(self) -> tuple[str, str]:
-        configured = (
-            self._entry.options.get(CONF_NOTIFY_SERVICE)
-            or self._entry.data.get(CONF_NOTIFY_SERVICE)
-            or ""
-        )
-        return resolve_notify_target(configured)
-
     async def async_tick(self, _now: datetime | None = None) -> None:
         """One delivery pass over the ``(watermark, now]`` window (RM-6/RM-7)."""
         now = dt_util.now()
         watermark = effective_watermark(self._store.watermark, now)
-        domain, service = self._notify_target()
+        domain, service = _notify_target_for(self._entry)
 
         for event in due_events(self._store.events, watermark, now):
-            try:
-                await self._hass.services.async_call(
-                    domain,
-                    service,
-                    {
-                        "title": NOTIFY_TITLE,
-                        "message": event.summary,
-                        "data": dict(NOTIFY_DATA),
-                    },
-                    blocking=True,
-                )
-            except Exception:
-                _LOGGER.exception("Failed to deliver reminder %r", event.summary)
+            await async_send_notification(
+                self._hass, domain, service, NOTIFY_TITLE, event.summary
+            )
 
         await self._store.async_set_watermark(now)
         await self._store.async_prune(now - PRUNE_RETENTION)
+
+
+class LocationDelivery:
+    """
+    Delivers location reminders immediately on a matching zone transition (LOC-1).
+
+    Subscribes to the ``person.*`` entities referenced by undelivered reminders and
+    re-subscribes whenever the store changes, so it only wakes for people who actually
+    have a pending reminder.
+    """
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, store: LocationReminderStore
+    ) -> None:
+        """Initialize with the location store and config entry to deliver against."""
+        self._hass = hass
+        self._entry = entry
+        self._store = store
+        self._unsub_track: Callable[[], None] | None = None
+        self._unsub_store: Callable[[], None] | None = None
+
+    @callback
+    def async_start(self) -> None:
+        """Begin tracking; re-derive subscriptions whenever the store changes."""
+        self._unsub_store = self._store.async_add_listener(self._resubscribe)
+        self._resubscribe()
+
+    @callback
+    def async_stop(self) -> None:
+        """Tear down all subscriptions (config-entry unload)."""
+        if self._unsub_track is not None:
+            self._unsub_track()
+            self._unsub_track = None
+        if self._unsub_store is not None:
+            self._unsub_store()
+            self._unsub_store = None
+
+    @callback
+    def _resubscribe(self) -> None:
+        """Track exactly the person entities referenced by undelivered reminders."""
+        if self._unsub_track is not None:
+            self._unsub_track()
+            self._unsub_track = None
+        persons = sorted(self._store.tracked_persons())
+        if persons:
+            self._unsub_track = async_track_state_change_event(
+                self._hass, persons, self._handle_state_change
+            )
+
+    async def _handle_state_change(self, event: Event[EventStateChangedData]) -> None:
+        """Deliver any reminder whose zone transition just occurred for this person."""
+        person = event.data["entity_id"]
+        old = event.data["old_state"]
+        new = event.data["new_state"]
+        old_state = old.state if old is not None else None
+        new_state = new.state if new is not None else None
+
+        candidates = [
+            r
+            for r in self._store.events
+            if r.delivered_at is None and r.person == person
+        ]
+        if not candidates:
+            return
+
+        # Classify the transition once per target zone, then deliver matches.
+        by_zone: dict[str, list[LocationReminder]] = {}
+        for reminder in candidates:
+            by_zone.setdefault(reminder.zone, []).append(reminder)
+
+        now = dt_util.now()
+        domain, service = _notify_target_for(self._entry)
+        for zone, reminders in by_zone.items():
+            kind = transition_kind(old_state, new_state, _zone_value(self._hass, zone))
+            if kind is None:
+                continue
+            for reminder in triggered(reminders, person, kind):
+                # Only cross it off once the push actually went out — a failed notify
+                # must leave the reminder pending so it can fire on a later transition.
+                if await async_send_notification(
+                    self._hass, domain, service, NOTIFY_TITLE_LOCATION, reminder.summary
+                ):
+                    await self._store.async_mark_delivered(reminder.uid, now)
+
+    async def async_prune_tick(self, _now: datetime | None = None) -> None:
+        """Sweep delivered reminders past the 7-day retention window (LOC-5)."""
+        await self._store.async_prune(
+            dt_util.now() - timedelta(days=LOCATION_RETENTION_DAYS)
+        )
