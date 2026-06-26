@@ -1,8 +1,8 @@
 // The `btoddb-reminders-card` Lovelace card.
 //
 // Two jobs, using stock Home Assistant web components (ha-card, ha-icon-button,
-// ha-icon, mwc-button) where they're reliably loaded, and native inputs for the
-// add row so the message and datetime fields always render:
+// ha-icon) where they're reliably loaded, and native inputs and buttons for the
+// add row so the message, datetime, and action elements always render:
 //   1. Type a new reminder (message + datetime) and call `btoddb_ha_reminders.create`.
 //   2. List upcoming reminders, read from the `calendar.btoddb_reminders` entity, with a
 //      per-row delete button (calendar/event/delete).
@@ -525,11 +525,11 @@ export class BtoddbRemindersCard extends LitElement {
       }}
         />
         ${isEditing
-        ? html`<mwc-button ?disabled=${this._busy} @click=${() => this._cancelEdit()}>Cancel</mwc-button>`
+        ? html`<button type="button" class="btn btn-secondary" ?disabled=${this._busy} @click=${() => this._cancelEdit()}>Cancel</button>`
         : nothing}
-        <mwc-button raised ?disabled=${this._busy} @click=${() => this._add()}>
+        <button type="button" class="btn btn-primary" ?disabled=${this._busy} @click=${() => this._add()}>
           ${isEditing ? "Save" : "Add"}
-        </mwc-button>
+        </button>
       </div>
     `;
   }
@@ -578,15 +578,16 @@ export class BtoddbRemindersCard extends LitElement {
           <option value="leave">Leaving</option>
         </select>
         ${isEditing
-        ? html`<mwc-button ?disabled=${this._busy} @click=${() => this._cancelEdit()}>Cancel</mwc-button>`
+        ? html`<button type="button" class="btn btn-secondary" ?disabled=${this._busy} @click=${() => this._cancelEdit()}>Cancel</button>`
         : nothing}
-        <mwc-button
-          raised
+        <button
+          type="button"
+          class="btn btn-primary"
           ?disabled=${this._busy}
           @click=${() => this._addLocation()}
         >
           ${isEditing ? "Save" : "Add"}
-        </mwc-button>
+        </button>
       </div>
     `;
   }
@@ -761,6 +762,43 @@ export class BtoddbRemindersCard extends LitElement {
     .picker {
       flex: 1 1 140px;
       min-width: 130px;
+    }
+    .btn {
+      flex: 0 0 auto;
+      height: 36px;
+      padding: 0 16px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.025em;
+      cursor: pointer;
+      transition: box-shadow 0.15s, background 0.15s;
+    }
+    .btn:disabled {
+      opacity: 0.38;
+      cursor: not-allowed;
+    }
+    .btn-primary {
+      background: var(--primary-color, #03a9f4);
+      color: var(--text-primary-color, #fff);
+      border: none;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+    .btn-primary:hover:not(:disabled) {
+      box-shadow: 0 3px 6px rgba(0, 0, 0, 0.35);
+    }
+    .btn-secondary {
+      background: transparent;
+      color: var(--primary-color, #03a9f4);
+      border: 1px solid var(--primary-color, #03a9f4);
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: color-mix(
+        in srgb,
+        var(--primary-color, #03a9f4) 10%,
+        transparent
+      );
     }
     .error {
       color: var(--error-color, #db4437);
