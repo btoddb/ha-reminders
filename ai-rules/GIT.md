@@ -14,3 +14,11 @@
 ## Security
 - **constraint** Never commit secrets, API keys, credentials, `.env` files, or private config — not even in test or scratch branches.
 - **constraint** Flag any security vulnerability (XSS, SQL injection, command injection, etc.) and fix it before reporting the task complete.
+
+## Before committing
+
+- **constraint** run all tests
+- **constraint** run lint
+- **constraint** **Hassfest locally (Docker):** `scripts/validate` runs CI's Hassfest check
+  (`ghcr.io/home-assistant/hassfest`) against the working tree — use it to catch
+  manifest/dependency/translation errors before pushing. Requires Docker.
