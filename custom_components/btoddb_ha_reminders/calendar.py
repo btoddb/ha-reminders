@@ -48,6 +48,10 @@ def _to_calendar_event(event: ReminderEvent) -> CalendarEvent:
         start=event.start,
         end=event.start + EVENT_DURATION,
         uid=event.uid,
+        # Pass rrule as description so the card can read it without risking
+        # HA expanding the event into multiple occurrences (the roll-forward
+        # model keeps exactly one occurrence in the store at any time).
+        description=event.rrule or None,
     )
 
 
