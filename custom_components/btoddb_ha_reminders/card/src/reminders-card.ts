@@ -663,7 +663,7 @@ export class BtoddbRemindersCard extends LitElement {
             <button
               class="tab ${this._mode === "time" ? "active" : ""}"
               @click=${() => {
-        if (this._mode !== "time") { this._editingUid = ""; this._mode = "time"; }
+        if (this._mode !== "time") { this._cancelEdit(); this._mode = "time"; }
       }}
             >
               Time
@@ -671,7 +671,7 @@ export class BtoddbRemindersCard extends LitElement {
             <button
               class="tab ${this._mode === "location" ? "active" : ""}"
               @click=${() => {
-        if (this._mode !== "location") { this._editingUid = ""; this._mode = "location"; }
+        if (this._mode !== "location") { this._cancelEdit(); this._mode = "location"; }
       }}
             >
               Location

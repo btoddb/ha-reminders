@@ -423,6 +423,9 @@ def _async_register_service(hass: HomeAssistant, store: ReminderStore) -> None:
         if message is None and start is None:
             msg = "Provide at least one of message, when, or in_minutes to update."
             raise ServiceValidationError(msg)
+        if start is not None and start < now:
+            msg = f"Cannot update reminder to a time in the past ({start.isoformat()})."
+            raise ServiceValidationError(msg)
         found = await store.async_update_event(uid, summary=message, start=start)
         if not found:
             msg = f"Reminder with uid {uid!r} not found."
@@ -470,6 +473,13 @@ def _async_register_location_services(
 
     async def _handle_update_location(call: ServiceCall) -> None:
         uid: str = call.data[ATTR_UID]
+        existing = next((e for e in store.events if e.uid == uid), None)
+        if existing is None:
+            msg = f"Location reminder with uid {uid!r} not found."
+            raise ServiceValidationError(msg)
+        if existing.delivered_at is not None:
+            msg = f"Location reminder with uid {uid!r} has already been delivered."
+            raise ServiceValidationError(msg)
         message: str | None = call.data.get(ATTR_MESSAGE)
         person: str | None = call.data.get(ATTR_PERSON)
         zone: str | None = call.data.get(ATTR_ZONE)
@@ -477,12 +487,9 @@ def _async_register_location_services(
         if message is None and person is None and zone is None and trigger is None:
             msg = "Provide at least one field to update."
             raise ServiceValidationError(msg)
-        found = await store.async_update_event(
+        await store.async_update_event(
             uid, summary=message, person=person, zone=zone, trigger=trigger
         )
-        if not found:
-            msg = f"Location reminder with uid {uid!r} not found."
-            raise ServiceValidationError(msg)
 
     async def _handle_delete_location(call: ServiceCall) -> None:
         await store.async_delete_event(call.data[ATTR_UID])
