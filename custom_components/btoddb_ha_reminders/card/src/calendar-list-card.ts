@@ -48,6 +48,7 @@ interface CalendarEntry {
   summary: string;
   start: Date;
   end: Date | null;
+  displayDate: Date;
   allDay: boolean;
   calendar: string;
   calendarName: string;
@@ -108,6 +109,12 @@ function dayKey(d: Date): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
+function startOfLocalDay(d: Date): Date {
+  const copy = new Date(d);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
 function nextDay(d: Date): Date {
   const copy = new Date(d);
   copy.setDate(copy.getDate() + 1);
@@ -118,6 +125,19 @@ function previousDay(d: Date): Date {
   const copy = new Date(d);
   copy.setDate(copy.getDate() - 1);
   return copy;
+}
+
+function maxDate(a: Date, b: Date): Date {
+  return a.getTime() > b.getTime() ? a : b;
+}
+
+function minDate(a: Date, b: Date): Date {
+  return a.getTime() < b.getTime() ? a : b;
+}
+
+function lastOverlappingDate(start: Date, end: Date | null): Date {
+  if (!end || end.getTime() <= start.getTime()) return start;
+  return new Date(end.getTime() - 1);
 }
 
 export class BtoddbCalendarListCardEditor extends LitElement {
@@ -502,7 +522,7 @@ export class BtoddbCalendarListCard extends LitElement {
                 `&end=${encodeURIComponent(end.toISOString())}`,
             );
             return {
-              entries: this._normalizeEvents(events ?? [], calendarConfig),
+              entries: this._normalizeEvents(events ?? [], calendarConfig, start, end),
               error: "",
             };
           } catch (err) {
@@ -521,10 +541,13 @@ export class BtoddbCalendarListCard extends LitElement {
           return eventEnd.getTime() >= nowCutoff;
         })
         .sort((a, b) => {
-          const dayDiff = a.start.getTime() - b.start.getTime();
-          if (dayKey(a.start) !== dayKey(b.start)) return dayDiff;
+          const dayDiff = a.displayDate.getTime() - b.displayDate.getTime();
+          if (dayKey(a.displayDate) !== dayKey(b.displayDate)) return dayDiff;
           if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
-          return dayDiff;
+          const aSortTime = Math.max(a.start.getTime(), a.displayDate.getTime());
+          const bSortTime = Math.max(b.start.getTime(), b.displayDate.getTime());
+          if (aSortTime !== bSortTime) return aSortTime - bSortTime;
+          return a.summary.localeCompare(b.summary);
         });
 
       const maxItems = this._maxItems();
@@ -544,20 +567,22 @@ export class BtoddbCalendarListCard extends LitElement {
   private _normalizeEvents(
     events: CalendarEvent[],
     calendarConfig: CalendarEntityConfig,
+    windowStart: Date,
+    windowEnd: Date,
   ): CalendarEntry[] {
     const state = this.hass.states[calendarConfig.entity];
     const calendarName =
       (state?.attributes?.friendly_name as string | undefined) ?? calendarConfig.entity;
 
     return events
-      .map((event, index): CalendarEntry | null => {
+      .flatMap((event, index): CalendarEntry[] => {
         const start = parseCalendarDate(event.start);
-        if (!start) return null;
+        if (!start) return [];
         const end = parseCalendarDate(event.end);
         const uid =
           event.uid ??
           `${calendarConfig.entity}-${start.toISOString()}-${event.summary ?? index}`;
-        return {
+        const baseEntry = {
           uid,
           summary: event.summary || "(No title)",
           start,
@@ -570,8 +595,24 @@ export class BtoddbCalendarListCard extends LitElement {
               ? undefined
               : normalizeHideMode(calendarConfig.hide_end_time, "auto"),
         };
-      })
-      .filter((entry): entry is CalendarEntry => entry !== null);
+
+        const firstDisplayDay = maxDate(startOfLocalDay(start), windowStart);
+        const lastDisplayDay = minDate(
+          startOfLocalDay(lastOverlappingDate(start, end)),
+          previousDay(windowEnd),
+        );
+        if (firstDisplayDay.getTime() > lastDisplayDay.getTime()) return [];
+
+        const entries: CalendarEntry[] = [];
+        for (
+          let displayDate = firstDisplayDay;
+          displayDate.getTime() <= lastDisplayDay.getTime();
+          displayDate = nextDay(displayDate)
+        ) {
+          entries.push({ ...baseEntry, displayDate });
+        }
+        return entries;
+      });
   }
 
   private _msg(err: unknown): string {
@@ -675,10 +716,10 @@ export class BtoddbCalendarListCard extends LitElement {
     const rows = [];
     let lastKey = "";
     for (const entry of this._entries) {
-      const key = dayKey(entry.start);
+      const key = dayKey(entry.displayDate);
       if (key !== lastKey) {
         rows.push(
-          html`<div class="day-header">${this._formatDayHeader(entry.start)}</div>`,
+          html`<div class="day-header">${this._formatDayHeader(entry.displayDate)}</div>`,
         );
         lastKey = key;
       }

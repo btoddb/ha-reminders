@@ -52,7 +52,7 @@ max_items: 0
 
 - Fetches each configured calendar from the HA calendar REST API
   (`GET calendars/<entity>?start=&end=`), merges results, sorts chronologically, and groups
-  by local day.
+  by local day, expanding multi-day events into one visible agenda row per day.
 - Skips empty days because day headers are emitted only for days with entries.
 - `hide_end_time` supports `auto` (default), `always`, or `never`; `auto` hides the end for
   all-day entries and point-in-time entries with duration of 1 minute or less.
