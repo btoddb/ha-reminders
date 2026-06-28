@@ -29,6 +29,7 @@ type CalendarEntityInput = string | CalendarEntityConfig;
 interface CalendarListCardConfig {
   type: string;
   title?: string;
+  dashboard_path?: string;
   entities?: CalendarEntityInput[];
   days?: number;
   hide_end_time?: boolean | HideEndTimeMode;
@@ -58,6 +59,7 @@ interface CalendarEntry {
 
 const DEFAULT_ENTITY = "calendar.btoddb_reminders";
 const DEFAULT_DAYS = 14;
+const DEFAULT_DASHBOARD_PATH = "/calendar?view=dayGridMonth";
 const MAX_DAYS = 365;
 const POINT_EVENT_MS = 60_000;
 const REMINDERS_CHANGED_EVENT = "btoddb-ha-reminders-reminders-changed";
@@ -88,6 +90,12 @@ function normalizeShowMode(
   if (value === false) return "never";
   if (value === "always" || value === "never" || value === "auto") return value;
   return fallback;
+}
+
+function normalizeDashboardPath(value: unknown): string {
+  if (typeof value !== "string") return DEFAULT_DASHBOARD_PATH;
+  const trimmed = value.trim();
+  return trimmed || DEFAULT_DASHBOARD_PATH;
 }
 
 function parseLocalDate(value: string): Date {
@@ -189,6 +197,14 @@ export class BtoddbCalendarListCardEditor extends LitElement {
     this._fireConfigChanged({ ...this._config, title });
   }
 
+  private _dashboardPathChanged(ev: Event): void {
+    const dashboardPath = (ev.target as HTMLInputElement).value.trim();
+    this._fireConfigChanged({
+      ...this._config,
+      dashboard_path: dashboardPath || undefined,
+    });
+  }
+
   private _daysChanged(ev: Event): void {
     const days = clampInt(
       (ev.target as HTMLInputElement).value,
@@ -266,6 +282,17 @@ export class BtoddbCalendarListCardEditor extends LitElement {
           .value=${this._config.title ?? ""}
           @change=${this._titleChanged}
         />
+
+        <label>
+          <span>Dashboard path</span>
+          <input
+            class="field"
+            type="text"
+            placeholder=${DEFAULT_DASHBOARD_PATH}
+            .value=${this._config.dashboard_path ?? ""}
+            @change=${this._dashboardPathChanged}
+          />
+        </label>
 
         <div class="entity-list">
           ${entityRows.map(
@@ -765,6 +792,25 @@ export class BtoddbCalendarListCard extends LitElement {
     return this._entities().length > 1;
   }
 
+  private _openCalendarDashboard(): void {
+    window.history.pushState(
+      null,
+      "",
+      normalizeDashboardPath(this._config.dashboard_path),
+    );
+    window.dispatchEvent(
+      new CustomEvent("location-changed", {
+        detail: { replace: false },
+      }),
+    );
+  }
+
+  private _handleCardKeydown(ev: KeyboardEvent): void {
+    if (ev.key !== "Enter" && ev.key !== " ") return;
+    ev.preventDefault();
+    this._openCalendarDashboard();
+  }
+
   private _renderRows() {
     const rows = [];
     let lastKey = "";
@@ -803,7 +849,13 @@ export class BtoddbCalendarListCard extends LitElement {
   render() {
     const title = this._config.title ?? "Agenda";
     return html`
-      <ha-card .header=${title}>
+      <ha-card
+        .header=${title}
+        role="button"
+        tabindex="0"
+        @click=${this._openCalendarDashboard}
+        @keydown=${this._handleCardKeydown}
+      >
         <div class="content">
           ${this._error ? html`<div class="error">${this._error}</div>` : nothing}
           ${this._entries.length === 0
@@ -819,6 +871,13 @@ export class BtoddbCalendarListCard extends LitElement {
   static styles = css`
     .content {
       padding: 0 16px 12px;
+    }
+    ha-card {
+      cursor: pointer;
+    }
+    ha-card:focus-visible {
+      outline: 2px solid var(--primary-color, #03a9f4);
+      outline-offset: 2px;
     }
     .error {
       margin: 12px 0 0;
