@@ -6,7 +6,9 @@ from datetime import datetime, timedelta, timezone
 
 from conftest import load_module
 
-format_spoken_time = load_module("spoken_time").format_spoken_time
+spoken_time = load_module("spoken_time")
+build_create_response = spoken_time.build_create_response
+format_spoken_time = spoken_time.format_spoken_time
 
 # A fixed offset stands in for local time; only the wall-clock fields matter here.
 TZ = timezone(timedelta(hours=-7))
@@ -51,3 +53,24 @@ def test_hour_strips_leading_zero():
 def test_midnight_and_noon():
     assert format_spoken_time(_at(2026, 6, 21, 0), NOW) == "today at 12 AM"
     assert format_spoken_time(_at(2026, 6, 21, 12, 5), NOW) == "today at 12:05 PM"
+
+
+def test_create_response_includes_clear_confirmation():
+    assert build_create_response("use gemini on github", _at(2026, 6, 21, 9), NOW) == {
+        "success": True,
+        "message": "use gemini on github",
+        "start": "today at 9 AM",
+        "confirmation": "Reminder set for today at 9 AM: use gemini on github",
+    }
+
+
+def test_create_response_includes_rrule_when_supplied():
+    assert build_create_response(
+        "stand up", _at(2026, 6, 22, 9), NOW, "FREQ=DAILY"
+    ) == {
+        "success": True,
+        "message": "stand up",
+        "start": "tomorrow at 9 AM",
+        "confirmation": "Reminder set for tomorrow at 9 AM: stand up",
+        "rrule": "FREQ=DAILY",
+    }

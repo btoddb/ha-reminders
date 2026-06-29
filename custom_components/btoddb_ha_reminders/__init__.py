@@ -77,7 +77,7 @@ from .location import (
     triggered,
 )
 from .location_store import LocationReminderStore
-from .spoken_time import format_spoken_time
+from .spoken_time import build_create_response, format_spoken_time
 from .store import ReminderStore
 
 if TYPE_CHECKING:
@@ -505,12 +505,7 @@ def _async_register_service(hass: HomeAssistant, store: ReminderStore) -> None:
             uid=uuid.uuid4().hex, summary=message, start=start, rrule=rrule
         )
         await store.async_add_event(event)
-        return {
-            "success": True,
-            "message": message,
-            "start": format_spoken_time(start, now),
-            **({"rrule": rrule} if rrule is not None else {}),
-        }
+        return build_create_response(message, start, now, rrule)
 
     async def _handle_update(call: ServiceCall) -> ServiceResponse:
         uid: str = call.data[ATTR_UID]
