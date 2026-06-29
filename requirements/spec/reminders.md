@@ -33,6 +33,11 @@ could refer to more than one occurrence) rather than a raw datetime. `confirmati
 wraps that spoken time in a ready-to-say success sentence so the agent can echo it
 verbatim instead of improvising a failure after a successful write.
 
+**RM-9a (constraint).** `btoddb_ha_reminders.update` returns the same spoken response
+shape as `create` (`{success, message, start, confirmation}`, plus `rrule` when present)
+so conversation agents can use one confirmation contract for time-based reminder
+creates and updates.
+
 ## Storage
 
 **RM-8a.** Reminders are stored by the component (`.storage/reminders`) and surfaced as
