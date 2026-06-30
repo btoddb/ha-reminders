@@ -1150,25 +1150,29 @@ export class BtoddbRemindersCard extends LitElement {
     .item.section-first {
       border-top: none;
     }
-    /* Bold divider between the time and location reminder groups. */
+    /* Filled, tinted banner between the time and location reminder groups —
+       reads far more clearly than a hairline or double rule, especially on
+       a phone screen. */
     .section-divider {
       display: flex;
       align-items: center;
-      gap: 6px;
-      color: var(--secondary-text-color, #727272);
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.05em;
+      gap: 8px;
+      margin: 14px 0 2px;
+      padding: 9px 12px;
+      border-radius: 8px;
+      border-left: 4px solid var(--primary-color, #03a9f4);
+      background: color-mix(in srgb, var(--primary-color, #03a9f4) 14%, transparent);
+      color: var(--primary-color, #03a9f4);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.07em;
       text-transform: uppercase;
-      padding: 10px 0 4px;
-      margin-top: 8px;
-      border-top: 3px double var(--divider-color, #e0e0e0);
     }
     .section-divider ha-icon {
-      --mdc-icon-size: 16px;
-      width: 16px;
-      height: 16px;
-      color: var(--secondary-text-color, #727272);
+      --mdc-icon-size: 18px;
+      width: 18px;
+      height: 18px;
+      color: var(--primary-color, #03a9f4);
     }
     .leading {
       color: var(--state-icon-color, var(--primary-color, #03a9f4));
