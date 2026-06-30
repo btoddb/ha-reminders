@@ -460,22 +460,24 @@ var Y=globalThis,j=Y.ShadowRoot&&(Y.ShadyCSS===void 0||Y.ShadyCSS.nativeShadow)&
     `}render(){let e=this._config.title??"BToddB Reminders",i=this._locationItems(),r=i.filter(d=>!d.deliveredAt),n=i.filter(d=>d.deliveredAt).sort((d,o)=>o.deliveredAt.getTime()-d.deliveredAt.getTime()),a=this._items.length+i.length;return l`
       <ha-card .header=${e}>
         <div class="content">
-          <div class="tabs">
-            <button
-              class="tab ${this._mode==="time"?"active":""}"
-              @click=${()=>{this._mode!=="time"&&(this._cancelEdit(),this._mode="time")}}
-            >
-              Time
-            </button>
-            <button
-              class="tab ${this._mode==="location"?"active":""}"
-              @click=${()=>{this._mode!=="location"&&(this._cancelEdit(),this._mode="location")}}
-            >
-              Location
-            </button>
-          </div>
+          <div class="entry-panel">
+            <div class="tabs">
+              <button
+                class="tab ${this._mode==="time"?"active":""}"
+                @click=${()=>{this._mode!=="time"&&(this._cancelEdit(),this._mode="time")}}
+              >
+                Time
+              </button>
+              <button
+                class="tab ${this._mode==="location"?"active":""}"
+                @click=${()=>{this._mode!=="location"&&(this._cancelEdit(),this._mode="location")}}
+              >
+                Location
+              </button>
+            </div>
 
-          ${this._mode==="time"?this._renderTimeAddRow():this._renderLocationAddRow()}
+            ${this._mode==="time"?this._renderTimeAddRow():this._renderLocationAddRow()}
+          </div>
 
           ${this._error?l`<div class="error">${this._error}</div>`:p}
 
@@ -493,10 +495,23 @@ var Y=globalThis,j=Y.ShadowRoot&&(Y.ShadyCSS===void 0||Y.ShadyCSS.nativeShadow)&
     .content {
       padding: 0 16px 12px;
     }
+    .entry-panel {
+      margin-top: 12px;
+      padding: 12px;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 10px;
+      background: color-mix(
+        in srgb,
+        var(--primary-text-color, #212121) 4%,
+        transparent
+      );
+    }
     .tabs {
       display: flex;
       gap: 8px;
-      padding-top: 8px;
+    }
+    .entry-panel .add-row {
+      padding-top: 12px;
     }
     .tab {
       flex: 0 0 auto;
@@ -815,7 +830,7 @@ var Y=globalThis,j=Y.ShadowRoot&&(Y.ShadyCSS===void 0||Y.ShadyCSS.nativeShadow)&
       border-color: var(--primary-color, #03a9f4);
       color: var(--primary-color, #03a9f4);
     }
-  `;customElements.get("btoddb-reminders-card")||customElements.define("btoddb-reminders-card",F);var pt="v0.0.65";console.info(`%c BTODDB-HA-REMINDERS %c ${pt} `,"color: white; background: #03a9f4; font-weight: 700;","color: #03a9f4; background: white; font-weight: 700;");window.customCards=window.customCards||[];window.customCards.push({type:"btoddb-reminders-card",name:"BToddB Reminders",description:"Create reminders and see the upcoming ones.",preview:!1,documentationURL:"https://github.com/btoddb/btoddb-ha-reminders"});window.customCards.push({type:"btoddb-calendar-list-card",name:"BToddB Calendar List",description:"Show calendars and reminders as a compact agenda.",preview:!1,documentationURL:"https://github.com/btoddb/btoddb-ha-reminders"});
+  `;customElements.get("btoddb-reminders-card")||customElements.define("btoddb-reminders-card",F);var pt="v0.0.66";console.info(`%c BTODDB-HA-REMINDERS %c ${pt} `,"color: white; background: #03a9f4; font-weight: 700;","color: #03a9f4; background: white; font-weight: 700;");window.customCards=window.customCards||[];window.customCards.push({type:"btoddb-reminders-card",name:"BToddB Reminders",description:"Create reminders and see the upcoming ones.",preview:!1,documentationURL:"https://github.com/btoddb/btoddb-ha-reminders"});window.customCards.push({type:"btoddb-calendar-list-card",name:"BToddB Calendar List",description:"Show calendars and reminders as a compact agenda.",preview:!1,documentationURL:"https://github.com/btoddb/btoddb-ha-reminders"});
 /*! Bundled license information:
 
 @lit/reactive-element/css-tag.js:
