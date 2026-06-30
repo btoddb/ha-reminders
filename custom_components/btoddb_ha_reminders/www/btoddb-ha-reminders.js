@@ -293,6 +293,17 @@ var Y=globalThis,j=Y.ShadowRoot&&(Y.ShadyCSS===void 0||Y.ShadyCSS.nativeShadow)&
                   <option value="daily">Daily</option>
                   <option value="weekly">Weekly</option>
                 </select>
+                <span class="interval-label">every</span>
+                <input
+                  class="interval-input"
+                  type="number"
+                  min="1"
+                  .value=${String(this._interval)}
+                  @input=${e=>{let i=parseInt(e.target.value,10);this._interval=Number.isFinite(i)&&i>=1?i:1}}
+                />
+                <span class="interval-label"
+                  >${this._freq==="daily"?"day(s)":"week(s)"}</span
+                >
                 ${this._freq==="weekly"?c`
                       <div class="weekday-chips">
                         ${ct.map(({code:e,label:i})=>c`
@@ -724,6 +735,23 @@ var Y=globalThis,j=Y.ShadowRoot&&(Y.ShadyCSS===void 0||Y.ShadyCSS.nativeShadow)&
       color-scheme: light dark;
       font-family: inherit;
       font-size: 14px;
+    }
+    .interval-input {
+      width: 48px;
+      height: 36px;
+      padding: 0 6px;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 4px;
+      background: var(--card-background-color, #fff);
+      color: var(--primary-text-color, #212121);
+      color-scheme: light dark;
+      font-family: inherit;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    .interval-label {
+      color: var(--secondary-text-color, #727272);
+      font-size: 13px;
     }
     .weekday-chips {
       display: flex;
