@@ -943,12 +943,12 @@ export class BtoddbRemindersCard extends LitElement {
     `;
   }
 
-  /** Bold, labeled divider that splits the time reminders from the location reminders. */
-  private _renderSectionDivider() {
+  /** Bold, labeled heading for reminder groups. */
+  private _renderSectionHeading(label: string, icon: string) {
     return html`
-      <div class="section-divider">
-        <ha-icon icon="mdi:map-marker"></ha-icon>
-        <span>Location</span>
+      <div class="section-heading">
+        <ha-icon icon=${icon}></ha-icon>
+        <span>${label}</span>
       </div>
     `;
   }
@@ -1031,9 +1031,12 @@ export class BtoddbRemindersCard extends LitElement {
         ? html`<div class="empty">No reminders.</div>`
         : html`
                 <div class="list">
+                  ${this._items.length
+          ? this._renderSectionHeading("Time", "mdi:alarm")
+          : nothing}
                   ${this._renderTimeRows()}
-                  ${locItems.length && this._items.length
-          ? this._renderSectionDivider()
+                  ${locItems.length
+          ? this._renderSectionHeading("Location", "mdi:map-marker")
           : nothing}
                   ${[...locUndelivered, ...locDelivered].map((item, i) =>
           this._renderLocationItem(item, this._items.length > 0 && i === 0),
@@ -1175,10 +1178,8 @@ export class BtoddbRemindersCard extends LitElement {
       margin-top: 4px;
       border-top: 1px solid var(--divider-color, #e0e0e0);
     }
-    .list > .day-header:first-child {
+    .section-heading + .day-header {
       border-top: none;
-      margin-top: 0;
-      padding-top: 4px;
     }
     .item.day-first {
       border-top: none;
@@ -1186,25 +1187,30 @@ export class BtoddbRemindersCard extends LitElement {
     .item.section-first {
       border-top: none;
     }
-    /* Bold divider between the time and location reminder groups. */
-    .section-divider {
+    /* Filled, tinted banner for reminder groups. */
+    .section-heading {
       display: flex;
       align-items: center;
-      gap: 6px;
-      color: var(--secondary-text-color, #727272);
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.05em;
+      gap: 8px;
+      margin: 14px 0 2px;
+      padding: 9px 12px;
+      border-radius: 8px;
+      border-left: 4px solid var(--primary-color, #03a9f4);
+      background: color-mix(in srgb, var(--primary-color, #03a9f4) 14%, transparent);
+      color: var(--primary-color, #03a9f4);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.07em;
       text-transform: uppercase;
-      padding: 10px 0 4px;
-      margin-top: 8px;
-      border-top: 3px double var(--divider-color, #e0e0e0);
     }
-    .section-divider ha-icon {
-      --mdc-icon-size: 16px;
-      width: 16px;
-      height: 16px;
-      color: var(--secondary-text-color, #727272);
+    .list > .section-heading:first-child {
+      margin-top: 0;
+    }
+    .section-heading ha-icon {
+      --mdc-icon-size: 18px;
+      width: 18px;
+      height: 18px;
+      color: var(--primary-color, #03a9f4);
     }
     .leading {
       color: var(--state-icon-color, var(--primary-color, #03a9f4));
