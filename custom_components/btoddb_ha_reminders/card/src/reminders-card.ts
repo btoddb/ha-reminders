@@ -289,8 +289,8 @@ export class BtoddbRemindersCard extends LitElement {
 
   getCardSize(): number {
     const locCount = this._locationItems().length;
-    const timeSize = this._timeCollapsed ? 1 : this._items.length;
-    const locSize = this._locationCollapsed ? 1 : locCount;
+    const timeSize = this._items.length ? (this._timeCollapsed ? 1 : this._items.length) : 0;
+    const locSize = locCount ? (this._locationCollapsed ? 1 : locCount) : 0;
     return 3 + Math.min(timeSize + locSize, 8);
   }
 
@@ -503,6 +503,7 @@ export class BtoddbRemindersCard extends LitElement {
       this._monthDay = 1;
       this._monthOrdinal = "1";
       this._monthWeekday = "MO";
+      if (!editingUid) this._timeCollapsed = false;
       await this._fetch();
       this._notifyTimeRemindersChanged();
     } catch (err) {
@@ -569,6 +570,7 @@ export class BtoddbRemindersCard extends LitElement {
       this._locZone = "";
       this._locTrigger = "enter";
       this._locPersistent = false;
+      if (!editingUid) this._locationCollapsed = false;
     } catch (err) {
       this._error = `Could not ${editingUid ? "update" : "create"} reminder: ${this._msg(err)}`;
     } finally {
@@ -1153,11 +1155,13 @@ export class BtoddbRemindersCard extends LitElement {
     count: number,
     collapsed: boolean,
     onToggle: () => void,
+    controlsId: string,
   ) {
     return html`
       <button
         class="section-heading"
         aria-expanded=${collapsed ? "false" : "true"}
+        aria-controls=${controlsId}
         @click=${onToggle}
       >
         <ha-icon icon=${icon}></ha-icon>
@@ -1252,15 +1256,15 @@ export class BtoddbRemindersCard extends LitElement {
         : html`
                 <div class="list">
                   ${this._items.length
-          ? this._renderSectionHeading("Time", "mdi:alarm", this._items.length, this._timeCollapsed, () => { this._timeCollapsed = !this._timeCollapsed; })
+          ? this._renderSectionHeading("Time", "mdi:alarm", this._items.length, this._timeCollapsed, () => { this._timeCollapsed = !this._timeCollapsed; }, "section-rows-time")
           : nothing}
-                  ${this._timeCollapsed ? nothing : this._renderTimeRows()}
+                  <div id="section-rows-time">${this._timeCollapsed ? nothing : this._renderTimeRows()}</div>
                   ${locItems.length
-          ? this._renderSectionHeading("Location", "mdi:map-marker", locItems.length, this._locationCollapsed, () => { this._locationCollapsed = !this._locationCollapsed; })
+          ? this._renderSectionHeading("Location", "mdi:map-marker", locItems.length, this._locationCollapsed, () => { this._locationCollapsed = !this._locationCollapsed; }, "section-rows-location")
           : nothing}
-                  ${this._locationCollapsed ? nothing : [...locUndelivered, ...locDelivered].map((item, i) =>
+                  <div id="section-rows-location">${this._locationCollapsed ? nothing : [...locUndelivered, ...locDelivered].map((item, i) =>
           this._renderLocationItem(item, this._items.length > 0 && i === 0),
-        )}
+        )}</div>
                 </div>
               `}
         </div>
