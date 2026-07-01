@@ -74,7 +74,7 @@ npm run build
 # --- 4. Deploy the bundle into the component's www/ directory. ---
 echo "Deploying to $COMPONENT_WWW ..."
 mkdir -p "$COMPONENT_WWW"
-cp ${INTEGRATION_DIR}.js ${INTEGRATION_DIR}.js.map "$COMPONENT_WWW/"
+cp btoddb-ha-reminders.js btoddb-ha-reminders.js.map "$COMPONENT_WWW/"
 
 # Success: drop the rollback trap and discard the backups.
 trap - ERR
