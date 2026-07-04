@@ -3,8 +3,6 @@
 This file provides guidance to AI coding agents when working with code in this
 repository.
 
-**These rules are non-negotiable - follow them exactly.**
-
 ## Project Overview
 
 This repo is a single Home Assistant **custom integration**,
@@ -58,24 +56,3 @@ There are **two independent version numbers**:
 - **Card:** `custom_components/btoddb_ha_reminders/card/package.json`
   (plain `X.Y.Z`). Bumped by `scripts/deploy-card`, which also syncs the
   console banner in `card/src/index.ts`.
-
-## Shared Pipeline
-
-The shared `@btb` command contract is injected at runtime by
-`btoddb/btb-pipeline`. Do not paste that shared workflow behavior into this
-repo; copied contract text drifts as the pipeline evolves.
-
-This repo's `.github/workflows/btb-client.yml` should stay a tiny caller of
-`btoddb/btb-pipeline/.github/workflows/btb.yml@v1`. Put only local facts in
-this file and the other `ai-rules` files.
-
-## Codex Rules
-
-- Follow every file in `ai-rules/` before editing.
-- Work on a fresh branch from `main`; never edit directly on `main`.
-- Preserve unrelated local edits and generated artifacts unless the task
-  explicitly requires changing them.
-- Run the relevant tests, lint, and validation commands before committing when
-  the local environment supports them.
-- Keep client repository guidance local and specific; shared `@btb` behavior
-  belongs in `btoddb/btb-pipeline`.
