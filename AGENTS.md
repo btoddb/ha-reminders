@@ -1,36 +1,25 @@
-# Agents
+# General Agent Rules
 
-This file provides guidance to OpenAI Codex for working with code in this repository.
+This file provides guidance to AI agents (Claude Code, OpenAI Codex, Cline, and others) for working with code in this repository.
 
-**constraint** Follow all the rules in all files in directory, [ai-rules](./ai-rules/).
-**constraint** Add new general project rules to [PROJECT_CONTEXT.md](./ai-rules/PROJECT_CONTEXT.md).
-**suggestion** If a new feature has a lot of new rules, create a new rule file in [ai-rules](./ai-rules/), purely for organization.  Otherwise add it to PROJECT_CONTEXT.md
+**constraint** Follow all the rules in every file under [.btb-pipeline/client-rules/](./.btb-pipeline/client-rules/). If that directory is missing or stale, bootstrap it first (see below).
+**constraint** Follow all the rules in all files in directory, [ai-rules](./ai-rules/) — these are this repo's local rules.
+**constraint** Add new repo-local rules to [PROJECT_CONTEXT.md](./ai-rules/PROJECT_CONTEXT.md). Propose changes to shared rules in btoddb/btb-pipeline instead of editing them here.
 
-## Shared agent contract
+## Bootstrap the shared rules
 
-The shared `/btbai` command contract is injected at runtime from the
-`SHARED_AGENT_CONTRACT` environment value in `.github/workflows/btb.yml`.
-Update that workflow value, the executable workflow behavior, and
-`requirements/spec/btb-workflow.md` together when command semantics or phase
-boundaries change.
+If `.btb-pipeline/` is missing:
 
-Do not paste the full shared contract into `CLAUDE.md`, `AGENTS.md`, client
-`ai-rules`, or templates. Those files should contain local repo guidance and
-short pointers only.
+    git clone --quiet --config advice.detachedHead=false --depth 1 --branch v1 \
+        https://github.com/btoddb/btb-pipeline.git .btb-pipeline
 
-## Agent rules
+If it already exists, refresh it:
 
-- Treat `templates/` as client bootstrap material, not another source of truth
-  for shared pipeline behavior.
-- When a fix needs to reach client repositories, release this repository and move
-  the floating `v1` tag as part of the ship flow.
+    git -C .btb-pipeline fetch --quiet --depth 1 --force origin refs/tags/v1:refs/tags/v1
+    git -C .btb-pipeline checkout --quiet v1
 
-- Follow every file in `ai-rules/` before editing.
-- Work on a fresh branch from `main`; never edit directly on `main`.
-- Keep the living spec in `requirements/spec/` synchronized with workflow
-  behavior changes.
-- For new code, always create a unit test
-  - For Typescript, use Vitest
-  - For Java, use JUnit 6
-  - For Python, use Pytest
-- If you can't make a needed change, give clear instructions on how I must manually change it.  Assume I'm a 5 year old that knows how to write, but I know nothing else.
+Then ensure the checkout stays untracked:
+
+    exclude_file="$(git rev-parse --git-path info/exclude)"
+    mkdir -p "$(dirname "$exclude_file")" && touch "$exclude_file"
+    grep -Fxq '/.btb-pipeline/' "$exclude_file" || printf '%s\n' '/.btb-pipeline/' >> "$exclude_file"
