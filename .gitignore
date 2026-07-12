@@ -30,3 +30,7 @@ config.backup*/
 # don't commit extra custom components used for testing
 custom_components/*
 !custom_components/btoddb_ha_reminders
+
+# local dev symlink to the sibling BToddB Notifications repo (issue #72); never commit
+# the symlink itself, only reference its service contract.
+custom_components/btoddb_notifications

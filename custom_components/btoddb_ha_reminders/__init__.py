@@ -8,7 +8,9 @@ README) and delivered as a high-priority push when due. This module wires up:
   (RM-9);
 - a component-owned ``calendar.btoddb_reminders`` entity (calendar platform);
 - a once-a-minute delivery loop with a durable, 6h-clamped watermark
-  (RM-6, RM-7, RM-7b).
+  (RM-6, RM-7, RM-7b), which pushes via the ``btoddb_notifications.send`` service —
+  the notify target itself is configured in the BToddB Notifications integration, not
+  here.
 """
 
 from __future__ import annotations
@@ -46,7 +48,6 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    CONF_NOTIFY_SERVICE,
     CONF_SNOOZE_DURATIONS,
     DATA_LOCATION_STORE,
     DATA_STORE,
@@ -54,7 +55,7 @@ from .const import (
     DELIVERY_INTERVAL_MINUTES,
     DOMAIN,
     LOCATION_RETENTION_DAYS,
-    NOTIFY_DATA,
+    NOTIFY_CHANNEL,
     NOTIFY_TITLE,
     NOTIFY_TITLE_LOCATION,
 )
@@ -66,7 +67,6 @@ from .delivery import (
     due_events,
     effective_watermark,
     parse_snooze_action,
-    resolve_notify_target,
     snoozed_event,
     validate_rrule,
 )
@@ -139,6 +139,11 @@ TRIGGER_VALUES = ("enter", "leave")
 
 # HA Companion app fires this event when a notification action button is tapped.
 _EVENT_MOBILE_APP_NOTIFICATION_ACTION = "mobile_app_notification_action"
+
+# The BToddB Notifications integration (issue #72): all notification sending is routed
+# through its ``send`` service rather than calling notify.* directly.
+NOTIFICATIONS_DOMAIN = "btoddb_notifications"
+NOTIFICATIONS_SERVICE_SEND = "send"
 
 
 def _optional_minutes(value: object) -> int | None:
@@ -219,37 +224,41 @@ LOCATION_PRUNE_INTERVAL_HOURS = 1
 
 async def async_send_notification(
     hass: HomeAssistant,
-    notify_target: tuple[str, str],
     title: str,
     message: str,
     extra_data: dict[str, object] | None = None,
 ) -> bool:
     """
-    Push one reminder to the notify target (shared by time + location delivery).
+    Push one reminder via ``btoddb_notifications.send`` (time + location delivery).
 
-    Returns ``True`` on success and ``False`` if the notify call raised. Exceptions are
-    caught and logged so a single failed delivery never aborts the rest of a delivery
-    pass; the boolean lets the caller decide whether to record the reminder as delivered
-    (a location reminder must not be crossed off if it never reached the user).
+    Returns ``True`` on success and ``False`` if delivery failed. A failed delivery
+    never aborts the rest of a delivery pass; the boolean lets the caller decide
+    whether to record the reminder as delivered (a location reminder must not be
+    crossed off if it never reached the user).
 
-    ``extra_data`` is merged into the base NOTIFY_DATA for snooze action buttons and a
-    notification tag on time-based reminders (RM-10).  Pass ``None`` (default) to omit.
+    ``extra_data`` is ``build_snooze_notify_data``'s ``{"tag": ..., "actions": [...]}``
+    (RM-10) — its keys map 1:1 onto ``btoddb_notifications.send``'s schema, so they are
+    passed through as top-level service fields, not nested under ``data``.
     """
-    domain, service = notify_target
+    payload: dict[str, object] = {
+        "message": message,
+        "title": title,
+        "channel": NOTIFY_CHANNEL,
+    }
+    if extra_data:
+        payload.update(extra_data)
     try:
-        data: dict[str, object] = dict(NOTIFY_DATA)
-        if extra_data:
-            data.update(extra_data)
-        await hass.services.async_call(
-            domain,
-            service,
-            {"title": title, "message": message, "data": data},
+        response = await hass.services.async_call(
+            NOTIFICATIONS_DOMAIN,
+            NOTIFICATIONS_SERVICE_SEND,
+            payload,
             blocking=True,
+            return_response=True,
         )
     except Exception:
         _LOGGER.exception("Failed to deliver reminder %r", message)
         return False
-    return True
+    return bool(response.get("success"))
 
 
 def _zone_value(hass: HomeAssistant, zone_entity_id: str) -> str:
@@ -269,16 +278,6 @@ def _zone_value(hass: HomeAssistant, zone_entity_id: str) -> str:
             return friendly
     # Fallback when the zone entity isn't loaded: best-effort title-cased slug.
     return zone_entity_id.split(".", 1)[-1].replace("_", " ").title()
-
-
-def _notify_target_for(entry: ConfigEntry) -> tuple[str, str]:
-    """Resolve the configured notify target for ``entry`` into ``(domain, service)``."""
-    configured = (
-        entry.options.get(CONF_NOTIFY_SERVICE)
-        or entry.data.get(CONF_NOTIFY_SERVICE)
-        or ""
-    )
-    return resolve_notify_target(configured)
 
 
 def _resolve_zone_arg(hass: HomeAssistant, zone_input: str) -> str:
@@ -478,7 +477,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload when options (e.g. the notify target) change."""
+    """Reload when options (e.g. snooze durations) change."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -701,7 +700,7 @@ def _async_register_location_services(
 
 
 class ReminderDelivery:
-    """Delivers due reminders to the configured notify service every minute."""
+    """Delivers due reminders via btoddb_notifications.send every minute."""
 
     def __init__(
         self, hass: HomeAssistant, entry: ConfigEntry, store: ReminderStore
@@ -715,7 +714,6 @@ class ReminderDelivery:
         """One delivery pass over the ``(watermark, now]`` window (RM-6/RM-7)."""
         now = dt_util.now()
         watermark = effective_watermark(self._store.watermark, now)
-        notify_target = _notify_target_for(self._entry)
         snooze_durations: list[int] = (
             self._entry.options.get(CONF_SNOOZE_DURATIONS)
             or self._entry.data.get(CONF_SNOOZE_DURATIONS)
@@ -725,7 +723,6 @@ class ReminderDelivery:
         for event in due_events(self._store.events, watermark, now):
             await async_send_notification(
                 self._hass,
-                notify_target,
                 NOTIFY_TITLE,
                 event.summary,
                 extra_data=build_snooze_notify_data(event.uid, snooze_durations),
@@ -824,7 +821,6 @@ class LocationDelivery:
             by_zone.setdefault(reminder.zone, []).append(reminder)
 
         now = dt_util.now()
-        notify_target = _notify_target_for(self._entry)
         for zone, reminders in by_zone.items():
             kind = transition_kind(old_state, new_state, _zone_value(self._hass, zone))
             if kind is None:
@@ -837,7 +833,6 @@ class LocationDelivery:
                 if (
                     await async_send_notification(
                         self._hass,
-                        notify_target,
                         NOTIFY_TITLE_LOCATION,
                         reminder.summary,
                     )

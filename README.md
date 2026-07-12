@@ -36,11 +36,24 @@ difference between reminders that work and reminders that randomly fail.**
   without touching Developer Tools. No hard-refresh or manual resource setup needed after
   updates.
 - **Delivery loop** — polls every minute and on startup; pushes any newly-due reminder
-  to your configured notify service (`notify.*`) as a high-priority notification. A durable,
-  6h-clamped watermark means reminders that came due while HA was down are still
-  delivered on restart, without replaying an unbounded backlog.
+  through the **BToddB Notifications** integration's `btoddb_notifications.send`
+  service as a high-priority notification. A durable, 6h-clamped watermark means
+  reminders that came due while HA was down are still delivered on restart, without
+  replaying an unbounded backlog.
 
 ## Installation
+
+### 0. Prerequisite: install BToddB Notifications
+
+This integration no longer talks to `notify.*` services directly — it sends every
+reminder through the **BToddB Notifications** integration. Install it first:
+
+1. HACS → ⋮ → **Custom repositories** → add
+   [`https://github.com/btoddb/ha-notifications`](https://github.com/btoddb/ha-notifications),
+   category **Integration**.
+2. Install **BToddB Notifications**, restart Home Assistant, then
+   **Settings → Devices & Services → Add Integration → BToddB Notifications** and pick
+   its notify target (see that integration's README for details).
 
 ### HACS (recommended)
 
@@ -54,35 +67,18 @@ and restart.
 
 ### Configure
 
-**Settings → Devices & Services → Add Integration → Reminders.** The setup picker
-is a dropdown of every **notify service** registered in your HA instance — pick the
-one you want due reminders delivered to. You can change it later from the integration's
-**Configure** button.
+**Settings → Devices & Services → Add Integration → Reminders.** Setup asks only for
+the calendar name (e.g. "BToddB Reminders"); pushing notifications and picking the
+notify target are handled entirely by the **BToddB Notifications** integration — see
+its README for how to configure that. Snooze durations can be changed later from this
+integration's **Configure** button.
 
-#### Which notify service?
+### Migrating from ≤ v0.6.x
 
-Anything in the `notify.*` domain works, because reminders are delivered by calling
-that service with a `title`, `message`, and `data` payload. Common choices:
-
-- **`notify.persistent_notification`** — shows the reminder as a dismissible
-  notification in the HA UI (the bell menu). Always available, nothing to install, and
-  a good default for testing.
-- **`notify.mobile_app_<device>`** — pushes to a phone/tablet running the **Home
-  Assistant Companion App** ([iOS](https://apps.apple.com/app/home-assistant/id1099568401) /
-  [Android](https://play.google.com/store/apps/details?id=io.homeassistant.companion.android)).
-  The service appears automatically once the app has connected to your HA instance.
-- **A notify group** (e.g. `notify.btoddb`) — fan a reminder out to several targets at
-  once. Define one under **Settings → Devices & Services → Helpers**, or in YAML with
-  the [`notify` group platform](https://www.home-assistant.io/integrations/group/#notify-groups).
-
-To see what's available on your instance, open **Developer Tools → Actions** and type
-`notify.` — every registered service is listed there (the same set the picker shows).
-
-> **Note:** the picker lists notify *services*, not the newer notify *entities*. This is
-> deliberate — persistent notifications and notify groups are only exposed as services,
-> never as entities, so a service picker is the only way to reach them. Make sure the
-> integration whose service you want is installed and connected before opening Configure —
-> the dropdown only shows services that are already registered.
+The notify-service setting has moved to the **BToddB Notifications** integration
+(issue #72). After upgrading, install and configure BToddB Notifications as described
+above — any `notify_service` value still stored in this integration's config entry is
+now ignored.
 
 ## Wiring up the conversation agent
 

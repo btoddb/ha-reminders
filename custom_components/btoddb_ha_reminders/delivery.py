@@ -437,12 +437,6 @@ def validate_rrule(rrule: str, start: datetime) -> str | None:
     return None
 
 
-def resolve_notify_target(configured: str) -> tuple[str, str]:
-    """Parse ``domain.service`` into ``(domain, service)``."""
-    domain, _, service = configured.partition(".")
-    return (domain or "notify"), (service or "notify")
-
-
 def snoozed_event(
     original: ReminderEvent, now: datetime, minutes: int
 ) -> ReminderEvent:
@@ -474,11 +468,12 @@ def build_snooze_notify_data(
     uid: str, snooze_durations: list[int]
 ) -> dict[str, object]:
     """
-    Build the ``data`` additions for an actionable snooze notification (RM-10).
+    Build the fields for an actionable snooze notification (RM-10).
 
-    Returns a dict with ``tag`` and ``actions`` to merge into the base NOTIFY_DATA.
-    The ``actions`` / ``tag`` keys are honoured only by the HA Companion mobile app;
-    other notify targets silently ignore them (RM-15).
+    Returns a dict with ``tag`` and ``actions``, passed through as top-level fields of
+    the ``btoddb_notifications.send`` call. The ``actions`` / ``tag`` keys are honoured
+    only by the HA Companion mobile app; other notify targets silently ignore them
+    (RM-15).
     """
     actions: list[dict[str, str]] = [
         {

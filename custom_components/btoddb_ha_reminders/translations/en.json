@@ -3,14 +3,12 @@
     "step": {
       "user": {
         "title": "BToddB Reminders",
-        "description": "BToddB Reminders are delivered as a notification through a notify service.",
+        "description": "BToddB Reminders are delivered through the BToddB Notifications integration.",
         "data": {
-          "calendar_name": "Calendar name",
-          "notify_service": "Notify service"
+          "calendar_name": "Calendar name"
         },
         "data_description": {
-          "calendar_name": "Name for the calendar entity (e.g. \"BToddB Reminders\"). Determines the entity_id.",
-          "notify_service": "Pick the notify service to push due reminders to (e.g. notify.persistent_notification, notify.mobile_app_DEVICE, or a notify group). See the README Configure section."
+          "calendar_name": "Name for the calendar entity (e.g. \"BToddB Reminders\"). Determines the entity_id."
         }
       }
     },
@@ -23,11 +21,9 @@
       "init": {
         "title": "BToddB Reminders",
         "data": {
-          "notify_service": "Notify service",
           "snooze_durations": "Snooze durations"
         },
         "data_description": {
-          "notify_service": "Pick the notify service to push due reminders to (e.g. notify.persistent_notification, notify.mobile_app_DEVICE, or a notify group). See the README Configure section.",
           "snooze_durations": "Comma-separated snooze durations in minutes (e.g. \"15, 60\"). These appear as snooze action buttons on delivered time-based notifications (HA Companion mobile app only)."
         }
       }
