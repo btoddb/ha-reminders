@@ -17,6 +17,9 @@
     }
   },
   "options": {
+    "error": {
+      "invalid_snooze_durations": "Enter one or more whole numbers of at least 1, separated by commas."
+    },
     "step": {
       "init": {
         "title": "BToddB Reminders",

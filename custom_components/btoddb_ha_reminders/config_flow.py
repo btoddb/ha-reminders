@@ -71,10 +71,9 @@ def _coerce_snooze_durations(value: object) -> list[int]:
 def _options_schema(default_snooze: str) -> vol.Schema:
     return vol.Schema(
         {
-            vol.Required(CONF_SNOOZE_DURATIONS, default=default_snooze): vol.All(
-                selector.TextSelector(),
-                _coerce_snooze_durations,
-            ),
+            vol.Required(
+                CONF_SNOOZE_DURATIONS, default=default_snooze
+            ): selector.TextSelector(),
         }
     )
 
@@ -112,8 +111,19 @@ class RemindersOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle the (only) options step: change snooze durations."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            try:
+                snooze_durations = _coerce_snooze_durations(
+                    user_input[CONF_SNOOZE_DURATIONS]
+                )
+            except vol.Invalid:
+                errors[CONF_SNOOZE_DURATIONS] = "invalid_snooze_durations"
+            else:
+                return self.async_create_entry(
+                    title="",
+                    data={CONF_SNOOZE_DURATIONS: snooze_durations},
+                )
         # Existing entries may still carry a "notify_service" key in data/options from
         # before issue #72's extraction; it is simply ignored now.
         current_durations: list[int] = self.config_entry.options.get(
@@ -122,4 +132,5 @@ class RemindersOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=_options_schema(_snooze_durations_to_str(current_durations)),
+            errors=errors,
         )
