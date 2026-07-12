@@ -7,11 +7,9 @@ from datetime import UTC, datetime, timedelta
 from conftest import load_module
 
 delivery = load_module("delivery")
-const = load_module("const")
 ReminderEvent = delivery.ReminderEvent
 due_events = delivery.due_events
 effective_watermark = delivery.effective_watermark
-resolve_notify_target = delivery.resolve_notify_target
 advance_recurring = delivery.advance_recurring
 next_occurrence = delivery.next_occurrence
 rrule_step = delivery.rrule_step
@@ -64,32 +62,6 @@ def test_nothing_due_returns_empty():
     watermark = NOW - timedelta(minutes=2)
     events = [_ev("future", 10)]
     assert due_events(events, watermark, NOW) == []
-
-
-# ---------------------------------------------------------------------------
-# resolve_notify_target() round-trip — the HA-free helper used by
-# ReminderDelivery._notify_target() in __init__.py.
-# ---------------------------------------------------------------------------
-
-_CONF = const.CONF_NOTIFY_SERVICE
-
-
-def test_resolve_notify_target_parses_domain_and_service():
-    assert resolve_notify_target("notify.mobile_app_pixel") == (
-        "notify",
-        "mobile_app_pixel",
-    )
-
-
-def test_resolve_notify_target_defaults_service_when_empty():
-    assert resolve_notify_target("") == ("notify", "notify")
-
-
-def test_resolve_notify_target_parses_persistent_notification():
-    assert resolve_notify_target("notify.persistent_notification") == (
-        "notify",
-        "persistent_notification",
-    )
 
 
 # ---------------------------------------------------------------------------

@@ -46,15 +46,23 @@ pkg = _load_package()
 
 
 class _FakeServices:
+    """
+    Stands in for ``hass.services`` when calling ``btoddb_notifications.send``.
+
+    ``fail`` simulates the real service catching a downstream notify failure and
+    returning ``{"success": False}`` (NT-6) rather than raising — that's the path
+    ``async_send_notification`` is exercising here.
+    """
+
     def __init__(self, *, fail: bool) -> None:
         self.fail = fail
         self.calls: list[tuple] = []
 
-    async def async_call(self, domain, service, data, blocking) -> None:
-        self.calls.append((domain, service, data, blocking))
-        if self.fail:
-            msg = "notify service unavailable"
-            raise RuntimeError(msg)
+    async def async_call(
+        self, domain, service, data, blocking, return_response
+    ) -> dict:
+        self.calls.append((domain, service, data, blocking, return_response))
+        return {"success": not self.fail}
 
 
 class _FakeHass:
@@ -78,8 +86,9 @@ class _FakeStore:
 
 
 def _entry():
-    # notify target resolves to ("notify", "foo"); options empty, data has the service.
-    return SimpleNamespace(options={}, data={"notify_service": "notify.foo"})
+    # LocationDelivery no longer resolves a notify target from the entry (issue #72);
+    # kept as a minimal stand-in since the constructor still takes one.
+    return SimpleNamespace(options={}, data={})
 
 
 def _enter_home_event(person="person.todd"):
@@ -106,16 +115,28 @@ def _reminder(persistent=False):
 
 def test_send_notification_returns_true_on_success():
     hass = _FakeHass(fail=False)
-    ok = asyncio.run(pkg.async_send_notification(hass, ("notify", "foo"), "t", "m"))
+    ok = asyncio.run(pkg.async_send_notification(hass, "t", "m"))
     assert ok is True
     assert len(hass.services.calls) == 1
 
 
-def test_send_notification_returns_false_when_notify_raises():
+def test_send_notification_returns_false_when_send_reports_failure():
     hass = _FakeHass(fail=True)
-    ok = asyncio.run(pkg.async_send_notification(hass, ("notify", "foo"), "t", "m"))
+    ok = asyncio.run(pkg.async_send_notification(hass, "t", "m"))
     assert ok is False
     assert len(hass.services.calls) == 1  # it tried
+
+
+def test_send_notification_returns_false_when_service_call_raises():
+    # Covers the service not being registered (btoddb_notifications not installed).
+    class _RaisingServices:
+        async def async_call(self, *_args, **_kwargs) -> dict:
+            msg = "btoddb_notifications.send is not registered"
+            raise RuntimeError(msg)
+
+    hass = SimpleNamespace(services=_RaisingServices())
+    ok = asyncio.run(pkg.async_send_notification(hass, "t", "m"))
+    assert ok is False
 
 
 def test_matching_transition_marks_delivered_on_success():

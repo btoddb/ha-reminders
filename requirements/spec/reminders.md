@@ -58,10 +58,13 @@ deployment concern, see README.)
 
 **RM-6 (constraint).** Reminders are delivered the moment they come due. The delivery
 loop polls every minute (and runs a catch-up pass on Home Assistant start) and pushes
-any newly-due reminder to the configured notify service with title "⏰ Reminder" and
-message = the reminder text. The push is high-priority (`ttl: 0`, `priority: high`,
-`importance: high`, `channel: Reminders`) so Android delivers it immediately rather than
-holding it in Doze. The notify target is configurable so the component is shareable.
+any newly-due reminder via the `btoddb_notifications.send` service (BToddB
+Notifications integration, issue #72) with title "⏰ Reminder", message = the reminder
+text, and channel "BToddB Reminders" (kept from before the split so users' existing
+per-channel settings survive the migration). The notify target itself — and the
+high-priority presentation (`ttl`/`priority`/`importance`) so Android delivers
+immediately rather than holding the push in Doze — are configured/owned by that
+integration (NT-3), not by this one.
 
 **RM-7.** Delivery is **watermark-based** so reminders that came due while Home
 Assistant was down are still delivered. The watermark records the last check; each run
@@ -96,7 +99,8 @@ a `trigger` of `enter` or `leave`. When that person's state transitions **into**
 (`old == zone, new != zone`) a `leave` reminder fires. A person's state is `"home"` for
 the home zone and the zone's **friendly name** for any other zone, so that is the value
 compared. Transitions where either side is `unknown`/`unavailable` are ignored. Delivery
-pushes to the same configured notify service as time reminders, with title "📍 Reminder".
+goes through the same `btoddb_notifications.send` service as time reminders (RM-6),
+with title "📍 Reminder".
 
 **LOC-2.** Detection is driven by `async_track_state_change_event` on the `person.*`
 entities referenced by **undelivered** reminders; the subscription is recomputed whenever
@@ -104,9 +108,10 @@ the store changes, so the integration only wakes for people who have a pending r
 
 **LOC-3 (constraint).** A location reminder is **one-shot**: the first matching transition
 that is **successfully pushed** stamps `delivered_at` and it never fires again. If the
-notify call raises, the reminder is left pending (not crossed off, not pruned) so a later
-matching transition can still deliver it — a reminder must never be marked delivered when
-it never reached the user.
+`btoddb_notifications.send` call fails — whether the service call itself raises or it
+returns `success: false` for a downstream notify failure (NT-6) — the reminder is left
+pending (not crossed off, not pruned) so a later matching transition can still deliver
+it — a reminder must never be marked delivered when it never reached the user.
 
 **LOC-4.** Location reminders persist in their own `Store`
 (`.storage/btoddb_ha_reminders_location`), separate from the time-based store, so neither
@@ -150,9 +155,11 @@ reshaping the model.
 ## Snooze (time-based reminders)
 
 **RM-10.** Every delivered time-based notification includes **actionable snooze buttons**
-alongside an OK button via `data.actions` (HA Companion mobile app format). The
-`data.tag` field is set per-reminder uid so that a re-delivered snooze replaces the
-notification if the device is still showing it.
+alongside an OK button, passed as the `actions` field of the `btoddb_notifications.send`
+call (HA Companion mobile app format — that service maps it through to `data.actions`
+on the underlying notify call). The `tag` field is set per-reminder uid (passed the same
+way) so that a re-delivered snooze replaces the notification if the device is still
+showing it.
 
 **RM-11.** A snooze creates a **new one-shot reminder** set to fire `minutes` after the
 moment the snooze action fires. The new event gets a fresh uid and no rrule. The original
@@ -172,6 +179,7 @@ taps are never processed.
 fields `uid` + `minutes`). The notification action listener delegates to this service.
 The service can also be invoked directly from automations, scripts, or the dashboard card.
 
-**RM-15 (constraint).** The `data.actions` / `data.tag` keys are honoured only by the
-HA Companion mobile app. For `notify.persistent_notification` or notify groups the keys
-are silently ignored — no regression for non-mobile users.
+**RM-15 (constraint).** The `actions` / `tag` fields passed through
+`btoddb_notifications.send` are honoured only by the HA Companion mobile app. For
+`notify.persistent_notification` or notify groups the keys are silently ignored — no
+regression for non-mobile users.
