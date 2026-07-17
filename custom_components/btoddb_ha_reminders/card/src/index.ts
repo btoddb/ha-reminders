@@ -9,8 +9,9 @@
 
 import "./calendar-list-card";
 import "./reminders-card";
+import "./timer-card";
 
-const VERSION = "v0.0.82";
+const VERSION = "v0.0.83";
 
 console.info(
   `%c BTODDB-HA-REMINDERS %c ${VERSION} `,
@@ -31,6 +32,13 @@ window.customCards.push({
   type: "btoddb-calendar-list-card",
   name: "BToddB Calendar List",
   description: "Show calendars and reminders as a compact agenda.",
+  preview: false,
+  documentationURL: "https://github.com/btoddb/ha-reminders",
+});
+window.customCards.push({
+  type: "btoddb-timer-card",
+  name: "BToddB Timers",
+  description: "Manage Home Assistant's built-in countdown timers.",
   preview: false,
   documentationURL: "https://github.com/btoddb/ha-reminders",
 });

@@ -78,8 +78,46 @@ dashboard_path: /calendar?view=dayGridMonth
   `hide_end_time: true|false|auto|always|never` are accepted for compatibility with earlier
   plan drafts.
 
-Both cards compile into the single `btoddb-ha-reminders.js` bundle and are registered from
-`src/index.ts`.
+## `btoddb-timer-card`
+
+Manages Home Assistant's **built-in `timer` helpers** (TC-1..TC-10 in
+`requirements/proposals/timer-card.md`) — no integration-side timer code.
+
+Example config:
+
+```yaml
+type: custom:btoddb-timer-card
+title: Timers
+entities:            # optional — omit to auto-discover every timer.*
+  - timer.pasta
+  - timer.laundry
+```
+
+- With no `entities:`, lists every `timer.*` entity, sorted active (soonest
+  `finishes_at` first) → paused (smallest `remaining` first) → idle (by name).
+  An explicit list keeps its configured order; non-`timer.*` entries are dropped
+  with a console warning.
+- Rows follow entity state: idle shows the default duration + Start; active
+  shows a live countdown + slim progress bar + Pause/Cancel; paused shows the
+  frozen `remaining` + Resume/Cancel. Service calls are plain `timer.start` /
+  `timer.pause` / `timer.cancel`.
+- The countdown is computed client-side from `finishes_at`; a 1-second
+  re-render interval runs **only while an active timer is rendered**.
+- Tapping an idle row's duration opens an inline min/sec editor with
+  `+1m/+5m/+10m` chips; Start passes the value as `timer.start`'s `duration`
+  override (the helper's stored default is untouched).
+- A WS subscription to the `timer.finished` event flashes the row as "Done" for
+  ~10 s (tap to dismiss). No sound/announce — that's user automations.
+- Admin users (`hass.user.is_admin`) get a ＋ header button that creates a
+  helper via WS `timer/create` (`restore: true`), and an idle-row ⋮ menu with
+  Delete (`config/entity_registry/get` → `timer/delete` by `unique_id`, so
+  YAML-defined timers fail with an explanatory error).
+- Pure logic (duration parse/format, countdown math, sort, config partition)
+  lives in `src/timer-logic.ts`, unit-tested by Vitest in
+  `src/timer-logic.test.ts` — run with `npm test` from `card/`.
+
+All three cards compile into the single `btoddb-ha-reminders.js` bundle and are
+registered from `src/index.ts`.
 
 ## Source / build / deploy
 
