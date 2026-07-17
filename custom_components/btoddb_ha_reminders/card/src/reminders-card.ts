@@ -75,6 +75,31 @@ interface LocationAttr {
   delivered_at: string | null;
 }
 
+interface TimerItem {
+  kind: "timer";
+  uid: string;
+  label: string | null;
+  deviceId: string | null;
+  durationSeconds: number;
+  finishesAt: Date;
+  state: string; // "running" | "nagging"
+}
+
+interface TimerAttr {
+  uid: string;
+  label: string | null;
+  device_id: string | null;
+  duration_seconds: number;
+  created_at: string;
+  finishes_at: string;
+  state: string;
+}
+
+interface EntityRegistryEntry {
+  entity_id: string;
+  device_id: string | null;
+}
+
 const DEFAULT_ENTITY = "calendar.btoddb_reminders";
 const REMINDERS_CHANGED_EVENT = "btoddb-ha-reminders-reminders-changed";
 // Default entity_id of the location-reminders sensor. Used as a fallback only — the
@@ -82,6 +107,9 @@ const REMINDERS_CHANGED_EVENT = "btoddb-ha-reminders-reminders-changed";
 const LOCATION_SENSOR_DEFAULT = "sensor.btoddb_location_reminders";
 // Attribute the integration stamps on its location sensor for discovery.
 const LOCATION_SENSOR_MARKER = "btoddb_ha_reminders_location";
+// Same discovery pattern for the countdown-timers sensor (TM-14).
+const TIMERS_SENSOR_DEFAULT = "sensor.btoddb_timers";
+const TIMERS_SENSOR_MARKER = "btoddb_ha_reminders_timers";
 
 // Weekday chip order: Sun Mon Tue Wed Thu Fri Sat
 const WEEKDAY_CHIPS: { code: string; label: string }[] = [
@@ -238,17 +266,23 @@ export class BtoddbRemindersCard extends LitElement {
     _locZone: { state: true },
     _locTrigger: { state: true },
     _locPersistent: { state: true },
+    _timerLabel: { state: true },
+    _timerMinutes: { state: true },
+    _timerSeconds: { state: true },
+    _timerDevice: { state: true },
+    _satellites: { state: true },
     _busy: { state: true },
     _error: { state: true },
     _editingUid: { state: true },
     _timeCollapsed: { state: true },
     _locationCollapsed: { state: true },
+    _timersCollapsed: { state: true },
   };
 
   hass!: Hass;
   private _config: CardConfig = { type: "" };
   private _items: TimeItem[] = [];
-  private _mode: "time" | "location" = "time";
+  private _mode: "time" | "location" | "timer" = "time";
   private _message = "";
   private _when = defaultWhen();
   private _repeatOpen = false;
@@ -264,15 +298,24 @@ export class BtoddbRemindersCard extends LitElement {
   private _locZone = "";
   private _locTrigger = "enter";
   private _locPersistent = false;
+  private _timerLabel = "";
+  private _timerMinutes = 5;
+  private _timerSeconds = 0;
+  // Alarm target device_id; "" means "phone notification only" (no device — TM-7).
+  private _timerDevice = "";
+  private _satellites: { deviceId: string; name: string }[] = [];
   private _busy = false;
   private _error = "";
   private _editingUid = "";
   private _timeCollapsed = false;
   private _locationCollapsed = false;
+  private _timersCollapsed = false;
 
   private _entity = DEFAULT_ENTITY;
   private _lastSignature = "";
   private _refreshTimer?: number;
+  private _countdownTimer?: number;
+  private _satellitesLoaded = false;
 
   static getConfigElement() {
     return document.createElement("btoddb-reminders-card-editor");
@@ -289,24 +332,36 @@ export class BtoddbRemindersCard extends LitElement {
 
   getCardSize(): number {
     const locCount = this._locationItems().length;
+    const timerCount = this._timerItems().length;
     const timeSize = this._items.length ? (this._timeCollapsed ? 1 : this._items.length) : 0;
     const locSize = locCount ? (this._locationCollapsed ? 1 : locCount) : 0;
-    return 3 + Math.min(timeSize + locSize, 8);
+    const timerSize = timerCount ? (this._timersCollapsed ? 1 : timerCount) : 0;
+    return 3 + Math.min(timeSize + locSize + timerSize, 8);
   }
 
   connectedCallback(): void {
     super.connectedCallback();
     // Keep relative times fresh and let fired reminders fall off the list.
     this._refreshTimer = window.setInterval(() => this._fetch(), 60_000);
+    // The live countdown is derived client-side from finishes_at (TM-14): the sensor
+    // never ticks, so re-render each second — but only while a timer is showing.
+    this._countdownTimer = window.setInterval(() => {
+      if (this._timerItems().length && !this._timersCollapsed) this.requestUpdate();
+    }, 1_000);
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
     if (this._refreshTimer) window.clearInterval(this._refreshTimer);
+    if (this._countdownTimer) window.clearInterval(this._countdownTimer);
   }
 
   protected updated(changed: Map<string, unknown>): void {
     if (!changed.has("hass") || !this.hass) return;
+    if (!this._satellitesLoaded) {
+      this._satellitesLoaded = true;
+      this._loadSatellites();
+    }
     // Refetch only when the calendar entity actually changes, not on every global
     // hass update — `last_updated` advances on add / fire / delete.
     const st = this.hass.states[this._entity];
@@ -314,6 +369,40 @@ export class BtoddbRemindersCard extends LitElement {
     if (sig !== this._lastSignature) {
       this._lastSignature = sig;
       this._fetch();
+    }
+  }
+
+  /**
+   * Discover assist_satellite devices for the timer target picker. The entity
+   * registry maps satellite entities to their device ids; the friendly name comes
+   * from the entity state. Loaded once — satellites rarely change within a session.
+   */
+  private async _loadSatellites(): Promise<void> {
+    try {
+      const entries = await this.hass.callWS<EntityRegistryEntry[]>({
+        type: "config/entity_registry/list",
+      });
+      const seen = new Set<string>();
+      const satellites: { deviceId: string; name: string }[] = [];
+      for (const entry of entries) {
+        if (!entry.entity_id.startsWith("assist_satellite.")) continue;
+        if (!entry.device_id || seen.has(entry.device_id)) continue;
+        seen.add(entry.device_id);
+        satellites.push({
+          deviceId: entry.device_id,
+          name: this._entityName(entry.entity_id),
+        });
+      }
+      satellites.sort((a, b) => a.name.localeCompare(b.name));
+      this._satellites = satellites;
+      // Default the picker to the first satellite so voice-first homes get an
+      // audible alarm without touching the select.
+      if (!this._timerDevice && satellites.length) {
+        this._timerDevice = satellites[0].deviceId;
+      }
+    } catch {
+      // No registry access (rare) — the picker just offers "Phone notification".
+      this._satellites = [];
     }
   }
 
@@ -709,6 +798,95 @@ export class BtoddbRemindersCard extends LitElement {
     }));
   }
 
+  /**
+   * Entity id of the timers sensor, discovered by its marker attribute (same
+   * rename-proof pattern as the location sensor).
+   */
+  private _timersSensorId(): string {
+    const states = this.hass?.states ?? {};
+    if (states[TIMERS_SENSOR_DEFAULT]?.attributes?.[TIMERS_SENSOR_MARKER]) {
+      return TIMERS_SENSOR_DEFAULT;
+    }
+    for (const [id, st] of Object.entries(states)) {
+      if (id.startsWith("sensor.") && st.attributes?.[TIMERS_SENSOR_MARKER]) {
+        return id;
+      }
+    }
+    return TIMERS_SENSOR_DEFAULT;
+  }
+
+  /** Active timers read straight off the sensor's attributes (TM-14). */
+  private _timerItems(): TimerItem[] {
+    const st = this.hass?.states[this._timersSensorId()];
+    const raw = (st?.attributes?.timers as TimerAttr[] | undefined) ?? [];
+    return raw
+      .map(
+        (t): TimerItem => ({
+          kind: "timer",
+          uid: t.uid,
+          label: t.label,
+          deviceId: t.device_id,
+          durationSeconds: t.duration_seconds,
+          finishesAt: new Date(t.finishes_at),
+          state: t.state,
+        }),
+      )
+      .sort((a, b) => a.finishesAt.getTime() - b.finishesAt.getTime());
+  }
+
+  /** Friendly name of a timer's target device, from the satellite list. */
+  private _timerDeviceName(deviceId: string | null): string {
+    if (!deviceId) return "Phone notification";
+    return (
+      this._satellites.find((s) => s.deviceId === deviceId)?.name ?? deviceId
+    );
+  }
+
+  /** "4:32" / "1:04:09" countdown from now to `finishesAt`, floored at 0:00. */
+  private _formatRemaining(finishesAt: Date): string {
+    const total = Math.max(0, Math.ceil((finishesAt.getTime() - Date.now()) / 1000));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const seconds = total % 60;
+    if (hours) return `${hours}:${pad(minutes)}:${pad(seconds)}`;
+    return `${minutes}:${pad(seconds)}`;
+  }
+
+  private async _addTimer(): Promise<void> {
+    const minutes = Number.isFinite(this._timerMinutes) ? this._timerMinutes : 0;
+    const seconds = Number.isFinite(this._timerSeconds) ? this._timerSeconds : 0;
+    const duration = minutes * 60 + seconds;
+    if (duration < 1) {
+      this._error = "Pick a duration.";
+      return;
+    }
+    const serviceData: Record<string, unknown> = { duration_seconds: duration };
+    const label = this._timerLabel.trim();
+    if (label) serviceData.label = label;
+    if (this._timerDevice) serviceData.device_id = this._timerDevice;
+    this._busy = true;
+    this._error = "";
+    try {
+      await this.hass.callService("btoddb_ha_reminders", "create_timer", serviceData);
+      this._timerLabel = "";
+      this._timersCollapsed = false;
+    } catch (err) {
+      this._error = `Could not create timer: ${this._msg(err)}`;
+    } finally {
+      this._busy = false;
+    }
+  }
+
+  /** One button, TM-10 semantics: cancels a pending timer, silences a nagging one. */
+  private async _cancelTimer(uid: string): Promise<void> {
+    if (!uid) return;
+    try {
+      await this.hass.callService("btoddb_ha_reminders", "cancel_timer", { uid });
+    } catch (err) {
+      this._error = `Could not cancel timer: ${this._msg(err)}`;
+    }
+  }
+
   private _entityName(entityId: string): string {
     const st = this.hass?.states[entityId];
     return (st?.attributes?.friendly_name as string) ?? entityId;
@@ -1102,6 +1280,104 @@ export class BtoddbRemindersCard extends LitElement {
     `;
   }
 
+  private _renderTimerAddRow() {
+    return html`
+      <div>
+        <div class="add-row">
+          <input
+            class="message"
+            type="text"
+            placeholder="Label (optional)"
+            .value=${this._timerLabel}
+            @input=${(e: Event) => {
+              this._timerLabel = (e.target as HTMLInputElement).value;
+            }}
+            @keydown=${(e: KeyboardEvent) => {
+              if (e.key === "Enter") this._addTimer();
+            }}
+          />
+          <input
+            class="duration-input"
+            type="number"
+            min="0"
+            max="999"
+            .value=${String(this._timerMinutes)}
+            @input=${(e: Event) => {
+              const n = parseInt((e.target as HTMLInputElement).value, 10);
+              this._timerMinutes = Number.isFinite(n) && n >= 0 ? n : 0;
+            }}
+          />
+          <span class="interval-label">min</span>
+          <input
+            class="duration-input"
+            type="number"
+            min="0"
+            max="59"
+            .value=${String(this._timerSeconds)}
+            @input=${(e: Event) => {
+              const n = parseInt((e.target as HTMLInputElement).value, 10);
+              this._timerSeconds = Number.isFinite(n) && n >= 0 ? n : 0;
+            }}
+          />
+          <span class="interval-label">sec</span>
+          <select
+            class="trigger"
+            .value=${this._timerDevice}
+            @change=${(e: Event) => {
+              this._timerDevice = (e.target as HTMLSelectElement).value;
+            }}
+          >
+            ${this._satellites.map(
+              (s) => html`<option
+                value=${s.deviceId}
+                ?selected=${this._timerDevice === s.deviceId}
+              >
+                ${s.name}
+              </option>`,
+            )}
+            <option value="" ?selected=${this._timerDevice === ""}>
+              Phone notification
+            </option>
+          </select>
+          <button
+            type="button"
+            class="btn btn-primary"
+            ?disabled=${this._busy}
+            @click=${() => this._addTimer()}
+          >
+            Start
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  private _renderTimerItem(item: TimerItem, sectionFirst = false) {
+    const isNagging = item.state === "nagging";
+    const name = item.label ? `${item.label} timer` : "Timer";
+    const sub = isNagging
+      ? `Ringing · ${this._timerDeviceName(item.deviceId)}`
+      : `${this._formatRemaining(item.finishesAt)} · ${this._timerDeviceName(item.deviceId)}`;
+    return html`
+      <div class="item ${isNagging ? "nagging" : ""} ${sectionFirst ? "section-first" : ""}">
+        <ha-icon
+          class="leading"
+          icon=${isNagging ? "mdi:alarm-light" : "mdi:timer-outline"}
+        ></ha-icon>
+        <div class="text">
+          <span class="summary">${name}</span>
+          <span class="time">${sub}</span>
+        </div>
+        <ha-icon-button
+          .label=${isNagging ? "Stop timer" : "Cancel timer"}
+          @click=${() => this._cancelTimer(item.uid)}
+        >
+          <ha-icon icon=${isNagging ? "mdi:stop-circle-outline" : "mdi:close-circle-outline"}></ha-icon>
+        </ha-icon-button>
+      </div>
+    `;
+  }
+
   private _renderTimeRows() {
     const rows = [];
     let lastKey = "";
@@ -1218,7 +1494,8 @@ export class BtoddbRemindersCard extends LitElement {
     const locDelivered = locItems
       .filter((i) => i.deliveredAt)
       .sort((a, b) => b.deliveredAt!.getTime() - a.deliveredAt!.getTime());
-    const total = this._items.length + locItems.length;
+    const timerItems = this._timerItems();
+    const total = this._items.length + locItems.length + timerItems.length;
     return html`
       <ha-card .header=${title}>
         <div class="content">
@@ -1240,11 +1517,21 @@ export class BtoddbRemindersCard extends LitElement {
               >
                 Location
               </button>
+              <button
+                class="tab ${this._mode === "timer" ? "active" : ""}"
+                @click=${() => {
+          if (this._mode !== "timer") { this._cancelEdit(); this._mode = "timer"; }
+        }}
+              >
+                Timer
+              </button>
             </div>
 
             ${this._mode === "time"
           ? this._renderTimeAddRow()
-          : this._renderLocationAddRow()}
+          : this._mode === "location"
+            ? this._renderLocationAddRow()
+            : this._renderTimerAddRow()}
           </div>
 
           ${this._error
@@ -1264,6 +1551,12 @@ export class BtoddbRemindersCard extends LitElement {
           : nothing}
                   <div id="section-rows-location">${this._locationCollapsed ? nothing : [...locUndelivered, ...locDelivered].map((item, i) =>
           this._renderLocationItem(item, this._items.length > 0 && i === 0),
+        )}</div>
+                  ${timerItems.length
+          ? this._renderSectionHeading("Timers", "mdi:timer-outline", timerItems.length, this._timersCollapsed, () => { this._timersCollapsed = !this._timersCollapsed; }, "section-rows-timers")
+          : nothing}
+                  <div id="section-rows-timers">${this._timersCollapsed ? nothing : timerItems.map((item, i) =>
+          this._renderTimerItem(item, (this._items.length > 0 || locItems.length > 0) && i === 0),
         )}</div>
                 </div>
               `}
@@ -1505,6 +1798,32 @@ export class BtoddbRemindersCard extends LitElement {
     }
     .item.recurring .leading {
       color: var(--accent-color, var(--primary-color, #03a9f4));
+    }
+    /* A timer past zero: ringing on its device until stopped (TM-6). */
+    .item.nagging .leading {
+      color: var(--error-color, #db4437);
+      animation: nag-pulse 1s ease-in-out infinite;
+    }
+    .item.nagging .time {
+      color: var(--error-color, #db4437);
+      font-weight: 600;
+    }
+    @keyframes nag-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+    .duration-input {
+      width: 56px;
+      height: 40px;
+      padding: 0 6px;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 4px;
+      background: var(--card-background-color, #fff);
+      color: var(--primary-text-color, #212121);
+      color-scheme: light dark;
+      font-family: inherit;
+      font-size: 14px;
+      box-sizing: border-box;
     }
     .item.persistent .leading {
       color: var(--accent-color, var(--primary-color, #03a9f4));

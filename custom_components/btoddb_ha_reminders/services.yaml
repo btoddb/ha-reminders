@@ -297,3 +297,97 @@ delete_location:
       example: 1a2b3c4d
       selector:
         text:
+
+create_timer:
+  name: Create timer
+  description: >-
+    Start a countdown timer ("start a 5 minute timer"). When it reaches zero, the
+    alarm plays on the device that heard the request and repeats like a kitchen
+    timer until stopped or cancelled; with no device it falls back to a phone
+    push. Returns {success, uid, message, finishes_at, confirmation} where
+    confirmation is a ready-to-say sentence the conversation agent can echo back
+    verbatim and uid identifies the timer for cancel_timer / stop_timer.
+  fields:
+    duration_seconds:
+      name: Duration
+      description: >-
+        How long the timer runs, in seconds ("5 minutes" -> 300, "an hour and a
+        half" -> 5400). The component computes the finish time itself.
+      required: true
+      example: 300
+      selector:
+        number:
+          min: 1
+          mode: box
+          unit_of_measurement: seconds
+    label:
+      name: Label
+      description: >-
+        Optional short name for the timer ("pasta"), spoken back when it goes off
+        ("Your pasta timer is done").
+      required: false
+      example: pasta
+      selector:
+        text:
+    device_id:
+      name: Device
+      description: >-
+        The device that should play the alarm — normally the voice satellite that
+        heard the request. Omit to deliver the alarm as a phone push instead.
+      required: false
+      selector:
+        device:
+          entity:
+            - domain: assist_satellite
+
+stop_timer:
+  name: Stop timer
+  description: >-
+    Silence a timer that is going off ("stop timer"). With a uid, stops exactly
+    that timer; otherwise stops the nagging timer(s) for the given device, or
+    every nagging timer when no device is given. Stopping completes the timer; it
+    does not affect other pending timers. Returns {success, stopped, confirmation}.
+  fields:
+    uid:
+      name: UID
+      description: The unique id of the timer to stop. Omit to stop by device.
+      required: false
+      example: 1a2b3c4d
+      selector:
+        text:
+    device_id:
+      name: Device
+      description: >-
+        The device whose nagging timer(s) to stop — normally the voice satellite
+        that heard "stop timer". Omit to stop every nagging timer.
+      required: false
+      selector:
+        device:
+          entity:
+            - domain: assist_satellite
+
+cancel_timer:
+  name: Cancel timer
+  description: >-
+    Cancel a timer before or after it reaches zero. A pending timer never fires; a
+    nagging timer is silenced (same as stop_timer). Identify the timer by uid, by
+    its label ("pasta" cancels every active pasta timer), or by nothing at all when
+    exactly one timer is active. An unresolvable request is rejected with the list
+    of active timers. Returns {success, cancelled, confirmation}.
+  fields:
+    uid:
+      name: UID
+      description: The unique id of the timer to cancel. Omit to resolve by label.
+      required: false
+      example: 1a2b3c4d
+      selector:
+        text:
+    label:
+      name: Label
+      description: >-
+        The timer's label as spoken by the user ("pasta"), matched
+        case-insensitively against active timers. Omit when passing uid.
+      required: false
+      example: pasta
+      selector:
+        text:

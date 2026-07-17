@@ -1,0 +1,43 @@
+# Tuned stop_timer function for the Extended OpenAI Conversation integration
+# (jekalmin/extended_openai_conversation). Paste this into the conversation agent's
+# `functions` field, alongside create_timer (Settings -> Voice assistants -> your
+# assistant -> edit).
+#
+# This is what makes "stop timer" work while a timer is alarming (TM-9). The agent
+# forwards the current device id (rendered into the system prompt — see
+# create_timer.function.yaml for why it is a model parameter) so only the nagging
+# timer(s) on the device the user spoke to are silenced; with no device id the
+# service stops every nagging timer, so a typed "stop timer" always works too.
+#
+# response_variable is mandatory for the same reason as create_timer: the returned
+# {success, stopped, confirmation} tells the model whether anything was actually
+# ringing, and confirmation ("Pasta timer stopped." / "No timer is going off.") is
+# ready to say verbatim.
+
+- spec:
+    name: stop_timer
+    description: >-
+      Stop a countdown timer that is going off ("stop", "stop timer", "OK OK I got
+      it") — silences the repeating alarm. Use cancel_timer instead for a timer
+      that has not gone off yet. Always pass the current device id (from the
+      system prompt) as device_id so the timer ringing on the device the user
+      spoke to is the one stopped. The returned confirmation field is a
+      ready-to-say sentence — repeat it back as-is.
+    parameters:
+      type: object
+      properties:
+        uid:
+          type: string
+          description: Optional uid of a specific timer to stop; omit to stop whatever is ringing.
+        device_id:
+          type: string
+          description: The current device id from the system prompt (the device that heard the request).
+      required: []
+  function:
+    type: script
+    sequence:
+      - service: btoddb_ha_reminders.stop_timer
+        data:
+          uid: "{{ uid }}"
+          device_id: "{{ device_id }}"
+        response_variable: _function_result
