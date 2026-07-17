@@ -4,7 +4,7 @@ The Lovelace cards for the Reminders integration.
 
 ## `btoddb-reminders-card`
 
-- A **Time / Location** tab toggle picks which add-row shows.
+- A **Time / Location / Timer** tab toggle picks which add-row shows.
 - **Time** add row (native text `input` + native `datetime-local` input + native `<button>`)
   calls the **response-only** `btoddb_ha_reminders.create` service (`returnResponse` must be
   `true`). The message uses a styled native `<input>` rather than `ha-textfield` so it
@@ -17,7 +17,16 @@ The Lovelace cards for the Reminders integration.
   native `<select>` for enter/leave + native `<button>`) calls
   `btoddb_ha_reminders.create_location`. The `persistent` flag (re-fire on every matching
   zone transition instead of once) is exposed as a **Repeat** toggle button below the row.
-- The **Time** and **Location** section headings in the list are independently
+- **Timer** add row (native text `input` for an optional label + native number inputs
+  for minutes/seconds + a native `<select>` of assist_satellite devices, discovered via
+  the entity registry, with a "Phone notification" no-device option + native `<button>`)
+  calls `btoddb_ha_reminders.create_timer`. Timer rows show a **live countdown** computed
+  client-side from `finishes_at` (a 1-second interval re-renders while timers are
+  visible — the `sensor.btoddb_timers` entity itself never ticks, TM-14). A timer past
+  zero shows as **Ringing** (pulsing red icon); its one cancel/stop button calls
+  `btoddb_ha_reminders.cancel_timer`, which cancels a pending timer and silences a
+  nagging one (TM-10). Timers are not editable — cancel and re-create.
+- The **Time**, **Location**, and **Timers** section headings in the list are independently
   collapsible — clicking a heading (which shows a count badge and a chevron twisty) toggles
   `_timeCollapsed` / `_locationCollapsed` state, hiding or showing the rows for that group.
   The chevron rotates 90° when collapsed. `getCardSize()` counts a collapsed section as 1
