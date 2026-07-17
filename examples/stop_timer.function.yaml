@@ -18,10 +18,9 @@
     name: stop_timer
     description: >-
       Stop a countdown timer that is going off ("stop", "stop timer", "OK OK I got
-      it") — silences the repeating alarm. Also cancels a still-running timer when
-      the user gives its uid ("cancel the pasta timer" — take the uid from the
-      active timer list if you have one). Always pass the current device id (from
-      the system prompt) as device_id so the timer ringing on the device the user
+      it") — silences the repeating alarm. Use cancel_timer instead for a timer
+      that has not gone off yet. Always pass the current device id (from the
+      system prompt) as device_id so the timer ringing on the device the user
       spoke to is the one stopped. The returned confirmation field is a
       ready-to-say sentence — repeat it back as-is.
     parameters:

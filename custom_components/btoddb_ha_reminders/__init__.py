@@ -86,7 +86,13 @@ from .spoken_time import build_create_response, build_update_response
 from .store import ReminderStore
 from .timer_delivery import TimerDelivery
 from .timer_store import TimerStore
-from .timers import Timer, build_create_confirmation, build_stop_confirmation
+from .timers import (
+    Timer,
+    build_cancel_confirmation,
+    build_create_confirmation,
+    build_stop_confirmation,
+    find_timers_to_cancel,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -249,7 +255,15 @@ STOP_TIMER_SCHEMA = vol.Schema(
     }
 )
 
-CANCEL_TIMER_SCHEMA = vol.Schema({vol.Required(ATTR_UID): cv.string})
+# uid and label are both optional: the card passes uid, a voice agent passes the label
+# the user said ("cancel the pasta timer"), and a bare call cancels the only active
+# timer. Resolution lives in timers.find_timers_to_cancel (TM-10).
+CANCEL_TIMER_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_UID): _optional_str,
+        vol.Optional(ATTR_LABEL): _optional_str,
+    }
+)
 
 SNOOZE_SCHEMA = vol.Schema(
     {
@@ -794,8 +808,11 @@ def _async_register_timer_services(
         )
         await store.async_add(timer)
         delivery.async_arm(timer)
+        # uid is part of the agent contract: without it the model has no identifier
+        # to cancel this timer with later ("cancel the pasta timer" — TM-10).
         return {
             "success": True,
+            "uid": timer.uid,
             "message": label or "",
             "finishes_at": timer.finishes_at.isoformat(),
             "confirmation": build_create_confirmation(label, duration),
@@ -811,11 +828,19 @@ def _async_register_timer_services(
             "confirmation": build_stop_confirmation(stopped),
         }
 
-    async def _handle_cancel_timer(call: ServiceCall) -> None:
-        uid: str = call.data[ATTR_UID]
-        if not await delivery.async_cancel(uid):
-            msg = f"Timer with uid {uid!r} not found."
-            _reject_input(msg)
+    async def _handle_cancel_timer(call: ServiceCall) -> ServiceResponse:
+        matches, error = find_timers_to_cancel(
+            list(store.timers), call.data.get(ATTR_UID), call.data.get(ATTR_LABEL)
+        )
+        if error is not None:
+            _reject_input(error)
+        for timer in matches:
+            await delivery.async_cancel(timer.uid)
+        return {
+            "success": True,
+            "cancelled": len(matches),
+            "confirmation": build_cancel_confirmation(matches),
+        }
 
     hass.services.async_register(
         DOMAIN,
@@ -836,6 +861,7 @@ def _async_register_timer_services(
         SERVICE_CANCEL_TIMER,
         _handle_cancel_timer,
         schema=CANCEL_TIMER_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
     )
 
 

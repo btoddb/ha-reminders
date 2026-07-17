@@ -77,6 +77,19 @@ When the user says "stop", "stop timer", or similar while a timer is going off, 
 stop_timer with the current device id above as device_id, and say the returned
 confirmation field exactly.
 
+# Makes "cancel the pasta timer" work before the timer fires: the label resolves
+# server-side, and the live uid list covers unlabeled timers. (TM-10)
+To cancel a timer that hasn't gone off yet, call cancel_timer with label = the name
+the user said ("pasta" — never the word "timer"); with only one timer active you may
+omit it. Use a uid from the list below only when a label can't identify the timer.
+Say the returned confirmation field exactly.
+
+# Gives the model the live active-timer list (uid + name) so any timer is
+# identifiable without guessing. Render live, like the people/zones lists. (TM-10)
+Active timers:
+{% for t in state_attr('sensor.btoddb_timers', 'timers') or [] %}  - {{ t.label or 'timer' }}: uid {{ t.uid }}
+{% endfor %}
+
 # Music directions
 To play a named radio station or playlist (KEXP, MVYRadio, a Spotify playlist), call
 the play_music function — never call execute_services/media_player for this, it can't

@@ -124,3 +124,33 @@ def test_prompt_examples_teach_timers_and_forward_the_current_device():
             f"{prompt_name}: missing create_timer guidance"
         )
         assert "stop_timer" in prompt, f"{prompt_name}: missing stop_timer guidance"
+
+
+def test_cancel_timer_function_forwards_label_and_uid():
+    """Voice cancels resolve by spoken label, uid only as fallback (TM-10)."""
+    function = _load_example("cancel_timer.function.yaml")[0]
+
+    properties = function["spec"]["parameters"]["properties"]
+    service_data = function["function"]["sequence"][0]["data"]
+
+    assert function["spec"]["name"] == "cancel_timer"
+    assert set(properties) == {"label", "uid"}
+    assert function["spec"]["parameters"]["required"] == []
+    assert service_data["label"] == "{{ label }}"
+    assert service_data["uid"] == "{{ uid }}"
+    assert function["function"]["sequence"][0]["response_variable"] == (
+        "_function_result"
+    )
+
+
+def test_prompt_examples_teach_cancel_and_list_active_timers():
+    """Cancel guidance + a live uid list must appear in both prompt files (TM-10)."""
+    for prompt_name in ("prompt-snippet.txt", "prompt-actual.txt"):
+        prompt = (ROOT / "examples" / prompt_name).read_text()
+
+        assert "call cancel_timer with label" in prompt, (
+            f"{prompt_name}: missing cancel_timer guidance"
+        )
+        assert "state_attr('sensor.btoddb_timers', 'timers')" in prompt, (
+            f"{prompt_name}: missing live active-timer list"
+        )

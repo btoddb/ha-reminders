@@ -172,3 +172,79 @@ def test_stop_without_device_stops_all_nagging():
 def test_stop_for_device_with_no_nagging_timer_stops_nothing():
     kitchen = _timer(uid="k", device_id="dev_k", state=timers.STATE_NAGGING)
     assert timers.nagging_timers_to_stop([kitchen], "dev_other") == []
+
+
+# --- cancel resolution (TM-10) ---
+
+
+def test_cancel_by_uid():
+    pasta = _timer(uid="p", label="pasta")
+    matches, error = timers.find_timers_to_cancel([pasta], "p", None)
+    assert (matches, error) == ([pasta], None)
+
+
+def test_cancel_by_unknown_uid_errors():
+    matches, error = timers.find_timers_to_cancel([_timer(uid="p")], "nope", None)
+    assert matches == []
+    assert "not found" in error
+
+
+def test_cancel_by_label_is_case_insensitive():
+    pasta = _timer(uid="p", label="Pasta")
+    oven = _timer(uid="o", label="oven")
+    matches, error = timers.find_timers_to_cancel([pasta, oven], None, "pasta")
+    assert (matches, error) == ([pasta], None)
+
+
+def test_cancel_by_label_matches_all_duplicates():
+    a = _timer(uid="a", label="pasta")
+    b = _timer(uid="b", label="pasta")
+    matches, error = timers.find_timers_to_cancel([a, b], None, "pasta")
+    assert (matches, error) == ([a, b], None)
+
+
+def test_cancel_by_unknown_label_lists_active_timers():
+    pasta = _timer(uid="p", label="pasta")
+    matches, error = timers.find_timers_to_cancel([pasta], None, "oven")
+    assert matches == []
+    assert "pasta timer (uid p)" in error
+
+
+def test_cancel_by_label_with_no_timers_errors():
+    matches, error = timers.find_timers_to_cancel([], None, "pasta")
+    assert matches == []
+    assert "no timers are active" in error
+
+
+def test_cancel_without_identifier_resolves_sole_timer():
+    only = _timer(uid="only")
+    matches, error = timers.find_timers_to_cancel([only], None, None)
+    assert (matches, error) == ([only], None)
+
+
+def test_cancel_without_identifier_is_ambiguous_with_several():
+    a = _timer(uid="a", label="pasta")
+    b = _timer(uid="b")
+    matches, error = timers.find_timers_to_cancel([a, b], None, None)
+    assert matches == []
+    assert "say which one" in error
+    assert "pasta timer (uid a)" in error
+    assert "timer (uid b)" in error
+
+
+def test_cancel_without_identifier_with_no_timers_errors():
+    matches, error = timers.find_timers_to_cancel([], None, None)
+    assert matches == []
+    assert error == "No timers are active."
+
+
+def test_cancel_confirmation_single_and_many():
+    assert (
+        timers.build_cancel_confirmation([_timer(label="pasta")])
+        == "Pasta timer cancelled."
+    )
+    assert timers.build_cancel_confirmation([_timer()]) == "Timer cancelled."
+    assert (
+        timers.build_cancel_confirmation([_timer(uid="a"), _timer(uid="b")])
+        == "2 timers cancelled."
+    )

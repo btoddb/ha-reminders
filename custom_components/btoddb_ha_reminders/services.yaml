@@ -304,8 +304,9 @@ create_timer:
     Start a countdown timer ("start a 5 minute timer"). When it reaches zero, the
     alarm plays on the device that heard the request and repeats like a kitchen
     timer until stopped or cancelled; with no device it falls back to a phone
-    push. Returns {success, message, finishes_at, confirmation} where confirmation
-    is a ready-to-say sentence the conversation agent can echo back verbatim.
+    push. Returns {success, uid, message, finishes_at, confirmation} where
+    confirmation is a ready-to-say sentence the conversation agent can echo back
+    verbatim and uid identifies the timer for cancel_timer / stop_timer.
   fields:
     duration_seconds:
       name: Duration
@@ -368,13 +369,25 @@ stop_timer:
 cancel_timer:
   name: Cancel timer
   description: >-
-    Cancel a timer by its unique id, before or after it reaches zero. A pending
-    timer never fires; a nagging timer is silenced (same as stop_timer).
+    Cancel a timer before or after it reaches zero. A pending timer never fires; a
+    nagging timer is silenced (same as stop_timer). Identify the timer by uid, by
+    its label ("pasta" cancels every active pasta timer), or by nothing at all when
+    exactly one timer is active. An unresolvable request is rejected with the list
+    of active timers. Returns {success, cancelled, confirmation}.
   fields:
     uid:
       name: UID
-      description: The unique id of the timer to cancel.
-      required: true
+      description: The unique id of the timer to cancel. Omit to resolve by label.
+      required: false
       example: 1a2b3c4d
+      selector:
+        text:
+    label:
+      name: Label
+      description: >-
+        The timer's label as spoken by the user ("pasta"), matched
+        case-insensitively against active timers. Omit when passing uid.
+      required: false
+      example: pasta
       selector:
         text:

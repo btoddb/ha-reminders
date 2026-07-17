@@ -107,6 +107,71 @@ def build_stop_confirmation(stopped: list[Timer]) -> str:
     return f"{len(stopped)} timers stopped."
 
 
+def build_cancel_confirmation(cancelled: list[Timer]) -> str:
+    """Ready-to-say result of a cancel request (TM-10), echoed verbatim."""
+    if len(cancelled) == 1:
+        name = _timer_name(cancelled[0].label)
+        return f"{name[0].upper()}{name[1:]} cancelled."
+    return f"{len(cancelled)} timers cancelled."
+
+
+def describe_timers(timers: list[Timer]) -> str:
+    """List active timers for an error message the agent can re-ask from."""
+    return ", ".join(f"{_timer_name(t.label)} (uid {t.uid})" for t in timers)
+
+
+def find_timers_to_cancel(
+    timers: list[Timer], uid: str | None, label: str | None
+) -> tuple[list[Timer], str | None]:
+    """
+    Resolve a cancel request to concrete timers (TM-10).
+
+    Returns ``(matches, error)`` — exactly one of the two is meaningful. Resolution,
+    in order:
+
+    - ``uid`` given: that timer exactly.
+    - ``label`` given: every active timer whose label matches case-insensitively
+      ("cancel the pasta timer" with two pasta timers cancels both).
+    - neither: the sole active timer, so "cancel the timer" works without the model
+      ever having seen a uid; ambiguous with several running.
+
+    Errors include the active-timer list so a conversation agent can re-ask
+    intelligently instead of guessing.
+    """
+    if uid is not None:
+        timer = next((t for t in timers if t.uid == uid), None)
+        if timer is None:
+            return [], f"Timer with uid {uid!r} not found."
+        return [timer], None
+    if label is not None:
+        return _find_by_label(timers, label)
+    return _sole_timer(timers)
+
+
+def _find_by_label(timers: list[Timer], label: str) -> tuple[list[Timer], str | None]:
+    """Match ``label`` case-insensitively against active timers."""
+    wanted = label.strip().casefold()
+    matches = [t for t in timers if (t.label or "").strip().casefold() == wanted]
+    if matches:
+        return matches, None
+    if not timers:
+        return [], f"No {label!r} timer found; no timers are active."
+    return [], f"No {label!r} timer found. Active timers: {describe_timers(timers)}."
+
+
+def _sole_timer(timers: list[Timer]) -> tuple[list[Timer], str | None]:
+    """Resolve an identifier-less cancel to the only active timer."""
+    if not timers:
+        return [], "No timers are active."
+    if len(timers) > 1:
+        return (
+            [],
+            "More than one timer is active; say which one. "
+            f"Active timers: {describe_timers(timers)}.",
+        )
+    return list(timers), None
+
+
 def announcement_text(label: str | None, now: datetime, finishes_at: datetime) -> str:
     """
     Return the spoken alarm text for a timer at/past zero (TM-6, TM-12).
