@@ -80,8 +80,8 @@ dashboard_path: /calendar?view=dayGridMonth
 
 ## `btoddb-timer-card`
 
-Manages Home Assistant's **built-in `timer` helpers** (TC-1..TC-10 in
-`requirements/proposals/timer-card.md`) — no integration-side timer code.
+Manages Home Assistant's **built-in `timer` helpers** (TC-1..TC-11 in
+`requirements/spec/timer-card.md`) — no integration-side timer code.
 
 Example config:
 
