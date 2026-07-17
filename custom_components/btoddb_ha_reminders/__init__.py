@@ -19,6 +19,7 @@ import hashlib
 import logging
 import uuid
 from datetime import timedelta
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -51,6 +52,8 @@ from .const import (
     CONF_SNOOZE_DURATIONS,
     DATA_LOCATION_STORE,
     DATA_STORE,
+    DATA_TIMER_DELIVERY,
+    DATA_TIMER_STORE,
     DEFAULT_SNOOZE_DURATIONS,
     DELIVERY_INTERVAL_MINUTES,
     DOMAIN,
@@ -58,6 +61,7 @@ from .const import (
     NOTIFY_CHANNEL,
     NOTIFY_TITLE,
     NOTIFY_TITLE_LOCATION,
+    NOTIFY_TITLE_TIMER,
 )
 from .delivery import (
     CATCHUP_FLOOR,
@@ -80,6 +84,9 @@ from .location import (
 from .location_store import LocationReminderStore
 from .spoken_time import build_create_response, build_update_response
 from .store import ReminderStore
+from .timer_delivery import TimerDelivery
+from .timer_store import TimerStore
+from .timers import Timer, build_create_confirmation, build_stop_confirmation
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -136,6 +143,13 @@ ATTR_TRIGGER = "trigger"
 ATTR_UID = "uid"
 ATTR_PERSISTENT = "persistent"
 TRIGGER_VALUES = ("enter", "leave")
+
+SERVICE_CREATE_TIMER = "create_timer"
+SERVICE_STOP_TIMER = "stop_timer"
+SERVICE_CANCEL_TIMER = "cancel_timer"
+ATTR_DURATION_SECONDS = "duration_seconds"
+ATTR_LABEL = "label"
+ATTR_DEVICE_ID = "device_id"
 
 # HA Companion app fires this event when a notification action button is tapped.
 _EVENT_MOBILE_APP_NOTIFICATION_ACTION = "mobile_app_notification_action"
@@ -204,6 +218,38 @@ UPDATE_LOCATION_SCHEMA = vol.Schema(
 )
 
 DELETE_LOCATION_SCHEMA = vol.Schema({vol.Required(ATTR_UID): cv.string})
+
+
+def _optional_str(value: object) -> str | None:
+    """
+    Coerce an optional string field, tolerating ''/None.
+
+    The agent's timer functions always pass e.g. ``label: "{{ label }}"``, which
+    renders to an empty string whenever the model omits it — treat ''/None as
+    "not given" rather than storing an empty label (same rationale as
+    ``_optional_minutes``).
+    """
+    if value in (None, ""):
+        return None
+    return str(value)
+
+
+CREATE_TIMER_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_DURATION_SECONDS): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional(ATTR_LABEL): _optional_str,
+        vol.Optional(ATTR_DEVICE_ID): _optional_str,
+    }
+)
+
+STOP_TIMER_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_UID): _optional_str,
+        vol.Optional(ATTR_DEVICE_ID): _optional_str,
+    }
+)
+
+CANCEL_TIMER_SCHEMA = vol.Schema({vol.Required(ATTR_UID): cv.string})
 
 SNOOZE_SCHEMA = vol.Schema(
     {
@@ -310,9 +356,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await store.async_load()
     location_store = LocationReminderStore(hass)
     await location_store.async_load()
+    timer_store = TimerStore(hass)
+    await timer_store.async_load()
+    timer_delivery = TimerDelivery(
+        hass,
+        timer_store,
+        partial(async_send_notification, hass, NOTIFY_TITLE_TIMER),
+    )
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         DATA_STORE: store,
         DATA_LOCATION_STORE: location_store,
+        DATA_TIMER_STORE: timer_store,
+        DATA_TIMER_DELIVERY: timer_delivery,
     }
 
     await _async_register_card(hass)
@@ -322,6 +377,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _async_register_service(hass, store)
     _async_register_snooze_service(hass, store)
     _async_register_location_services(hass, location_store)
+    _async_register_timer_services(hass, timer_store, timer_delivery)
+    entry.async_on_unload(timer_delivery.async_shutdown)
 
     async def _async_handle_notification_action(event: Event) -> None:
         """Forward mobile snooze button taps to the snooze service (RM-14)."""
@@ -378,15 +435,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Catch up immediately rather than waiting up to a minute for the first tick. On a
     # cold start, wait for HA to finish starting (mirrors the old automation's startup
-    # branch); on a reload, the loop is already up so run a tick now.
+    # branch); on a reload, the loop is already up so run a tick now. Timer recovery
+    # (TM-12) rides the same gate so an expired-while-down timer doesn't try to
+    # announce before the assist_satellite integration is loaded.
     if hass.state is CoreState.running:
         entry.async_create_background_task(
             hass, delivery.async_tick(), name="reminders_startup_catchup"
+        )
+        entry.async_create_background_task(
+            hass, timer_delivery.async_start(), name="reminders_timer_recovery"
         )
     else:
 
         async def _async_startup_catchup(_event: Event) -> None:
             await delivery.async_tick()
+            await timer_delivery.async_start()
 
         # A coroutine listener is scheduled on the event loop by HA; a plain sync
         # lambda would be run in an executor thread, and calling into hass from there
@@ -473,6 +536,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.services.async_remove(DOMAIN, SERVICE_CREATE_LOCATION)
             hass.services.async_remove(DOMAIN, SERVICE_UPDATE_LOCATION)
             hass.services.async_remove(DOMAIN, SERVICE_DELETE_LOCATION)
+            hass.services.async_remove(DOMAIN, SERVICE_CREATE_TIMER)
+            hass.services.async_remove(DOMAIN, SERVICE_STOP_TIMER)
+            hass.services.async_remove(DOMAIN, SERVICE_CANCEL_TIMER)
     return unload_ok
 
 
@@ -696,6 +762,80 @@ def _async_register_location_services(
         SERVICE_DELETE_LOCATION,
         _handle_delete_location,
         schema=DELETE_LOCATION_SCHEMA,
+    )
+
+
+@callback
+def _async_register_timer_services(
+    hass: HomeAssistant, store: TimerStore, delivery: TimerDelivery
+) -> None:
+    """Register countdown-timer services (idempotent)."""
+    if hass.services.has_service(DOMAIN, SERVICE_CREATE_TIMER):
+        return
+
+    async def _handle_create_timer(call: ServiceCall) -> ServiceResponse:
+        duration: int = call.data[ATTR_DURATION_SECONDS]
+        label: str | None = call.data.get(ATTR_LABEL)
+        # TM-2: the originating device comes in as an explicit device_id (the agent
+        # function forwards the satellite's device). HA does not expose the Assist
+        # device on ServiceCall.context, so with no device_id the timer has no target
+        # and falls back to a phone push at zero (TM-7).
+        device_id: str | None = call.data.get(ATTR_DEVICE_ID)
+        now = dt_util.now()
+        timer = Timer(
+            uid=uuid.uuid4().hex,
+            duration_seconds=duration,
+            created_at=now,
+            # The component computes now + duration itself (TM-1); the caller never
+            # does clock arithmetic (RM-4a rationale).
+            finishes_at=now + timedelta(seconds=duration),
+            label=label,
+            device_id=device_id,
+        )
+        await store.async_add(timer)
+        delivery.async_arm(timer)
+        return {
+            "success": True,
+            "message": label or "",
+            "finishes_at": timer.finishes_at.isoformat(),
+            "confirmation": build_create_confirmation(label, duration),
+        }
+
+    async def _handle_stop_timer(call: ServiceCall) -> ServiceResponse:
+        stopped = await delivery.async_stop(
+            uid=call.data.get(ATTR_UID), device_id=call.data.get(ATTR_DEVICE_ID)
+        )
+        return {
+            "success": bool(stopped),
+            "stopped": len(stopped),
+            "confirmation": build_stop_confirmation(stopped),
+        }
+
+    async def _handle_cancel_timer(call: ServiceCall) -> None:
+        uid: str = call.data[ATTR_UID]
+        if not await delivery.async_cancel(uid):
+            msg = f"Timer with uid {uid!r} not found."
+            _reject_input(msg)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CREATE_TIMER,
+        _handle_create_timer,
+        schema=CREATE_TIMER_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_STOP_TIMER,
+        _handle_stop_timer,
+        schema=STOP_TIMER_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CANCEL_TIMER,
+        _handle_cancel_timer,
+        schema=CANCEL_TIMER_SCHEMA,
     )
 
 

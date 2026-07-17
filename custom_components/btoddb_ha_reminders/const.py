@@ -28,9 +28,11 @@ NOTIFY_CHANNEL = "BToddB Reminders"
 # the title and channel.
 NOTIFY_TITLE = "⏰ Reminder"
 
-# Keys for the per-entry runtime data dict (holds both reminder stores).
+# Keys for the per-entry runtime data dict (holds all three reminder stores).
 DATA_STORE = "store"
 DATA_LOCATION_STORE = "location_store"
+DATA_TIMER_STORE = "timer_store"
+DATA_TIMER_DELIVERY = "timer_delivery"
 
 # Storage (.storage/reminders).
 STORAGE_KEY = DOMAIN
@@ -41,8 +43,16 @@ STORAGE_VERSION = 1
 STORAGE_KEY_LOCATION = f"{DOMAIN}_location"
 STORAGE_VERSION_LOCATION = 1
 
+# Countdown timers persist separately (.storage/btoddb_ha_reminders_timers) so neither
+# other store needs migrating when timers change (TM-11, LOC-4 precedent).
+STORAGE_KEY_TIMERS = f"{DOMAIN}_timers"
+STORAGE_VERSION_TIMERS = 1
+
 # Delivery loop cadence (RM-6): poll every minute, not the calendar trigger.
 DELIVERY_INTERVAL_MINUTES = 1
+
+# Notification presentation for a timer that fell back to a phone push (TM-7/TM-8).
+NOTIFY_TITLE_TIMER = "⏲️ Timer"
 
 # Notification presentation for a delivered location reminder (LOC-1). Same channel as
 # time reminders; only the title differs so the user can tell them apart.
