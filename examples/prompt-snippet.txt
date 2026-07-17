@@ -57,39 +57,6 @@ When you say a date or time out loud, speak it the way a person would — "six p
 "half past nine", "tomorrow at six" — never digit-clock or ISO form like "6:00 PM" or
 "2026-06-18".
 
-# ---- Countdown timers (add only if you wire up create_timer / stop_timer) ----
-
-# Gives the model the id of the device that heard the request so create_timer /
-# stop_timer can target the alarm at it (TM-2). current_device_id is rendered by
-# Extended OpenAI Conversation; it is empty for typed requests. (TM-2, TM-9)
-Current device id: {{ current_device_id }}
-
-# Routes duration phrasing through duration_seconds so the home does the clock
-# arithmetic (TM-1), and makes the alarm ring where the user is (TM-7). (TM-1..TM-3)
-For a countdown timer ("start a 5 minute timer", "set a pasta timer for 8 minutes"),
-call create_timer with duration_seconds = the duration in whole seconds, and pass the
-current device id above as device_id. If the user names the timer, pass just that name
-as label (e.g. "pasta" — never the word "timer"). Say the returned confirmation field
-exactly. Timers are not reminders: use create_reminder only for clock times and dates.
-
-# Makes "stop timer" silence the alarm on the device that heard it. (TM-9)
-When the user says "stop", "stop timer", or similar while a timer is going off, call
-stop_timer with the current device id above as device_id, and say the returned
-confirmation field exactly.
-
-# Makes "cancel the pasta timer" work before the timer fires: the label resolves
-# server-side, and the live uid list covers unlabeled timers. (TM-10)
-To cancel a timer that hasn't gone off yet, call cancel_timer with label = the name
-the user said ("pasta" — never the word "timer"); with only one timer active you may
-omit it. Use a uid from the list below only when a label can't identify the timer.
-Say the returned confirmation field exactly.
-
-# Gives the model the live active-timer list (uid + name) so any timer is
-# identifiable without guessing. Render live, like the people/zones lists. (TM-10)
-Active timers:
-{% for t in state_attr('sensor.btoddb_timers', 'timers') or [] %}  - {{ t.label or 'timer' }}: uid {{ t.uid }}
-{% endfor %}
-
 # Music directions
 To play a named radio station or playlist (KEXP, MVYRadio, a Spotify playlist), call
 the play_music function — never call execute_services/media_player for this, it can't
