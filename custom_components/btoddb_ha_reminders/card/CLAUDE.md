@@ -19,7 +19,9 @@ The Lovelace cards for the Reminders integration.
   zone transition instead of once) is exposed as a **Repeat** toggle button below the row.
 - **Timer** add row (native text `input` for an optional label + native number inputs
   for minutes/seconds + a native `<select>` of assist_satellite devices, discovered via
-  the entity registry, with a "Phone notification" no-device option + native `<button>`)
+  the entity/device/area registries and labeled "device name - area" (entity friendly
+  names can be identical across satellites), with a "Phone notification" no-device
+  option + native `<button>`)
   calls `btoddb_ha_reminders.create_timer`. Timer rows show a **live countdown** computed
   client-side from `finishes_at` (a 1-second interval re-renders while timers are
   visible — the `sensor.btoddb_timers` entity itself never ticks, TM-14). A timer past
