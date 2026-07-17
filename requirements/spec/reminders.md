@@ -152,6 +152,100 @@ RM-9 for time reminders).
 stored as an entity_id string so an address-backed source can slot in later without
 reshaping the model.
 
+## Countdown timers
+
+A third, independent kind ("start a 5 minute timer", issue #79): short-lived,
+second-precision, device-targeted, and loud until acknowledged — a kitchen timer, not a
+reminder. Timers have their own pure-logic engine (`timers.py`), HA-side runtime
+(`timer_delivery.py`), storage (`.storage/btoddb_ha_reminders_timers`), and read
+surface (`sensor.btoddb_timers`). Time-based (RM-*) and location (LOC-*) rules are
+unaffected.
+
+**TM-1 (constraint).** `btoddb_ha_reminders.create_timer` accepts `duration_seconds`
+(required, positive integer), optional `label` (e.g. "pasta"), and optional
+`device_id` — the device that heard the request. The component computes
+`now() + duration` itself; the caller never does clock arithmetic (RM-4a rationale).
+Natural-language parsing ("five and a half minutes") stays with the conversation
+agent.
+
+**TM-2 (constraint).** The alarm targets the **originating device**, passed as an
+explicit `device_id`. Home Assistant does not expose the Assist device on
+`ServiceCall.context`, so the deployment wires it through the prompt: Extended OpenAI
+Conversation renders `current_device_id` into the system prompt only, and the
+`create_timer` / `stop_timer` agent functions (`examples/`) teach the model to copy it
+into `device_id` — the same bounded-copy job as person/zone entity_ids. With no
+resolvable device the timer has no target and falls back to a phone push at zero
+(TM-7). `test_examples.py` keeps the agent contract in sync.
+
+**TM-3 (constraint).** `create_timer` returns response data
+(`{success, uid, message, finishes_at, confirmation}`, via
+`SupportsResponse.OPTIONAL`) with a spoken confirmation ("Pasta timer set for 5
+minutes.") the agent echoes verbatim (RM-9 rationale). `uid` is part of the agent
+contract: without it the model has no identifier to cancel the timer with later
+(TM-10).
+
+**TM-4.** Multiple timers may run concurrently (pasta + oven). Each gets its own uid
+and its own target device.
+
+**TM-5 (constraint).** A timer fires **at its due second**, not on the minute poll:
+each timer is armed with its own point-in-time listener
+(`async_track_point_in_time`), independent of the RM-6/RM-7 watermark loop.
+
+**TM-6 (constraint).** At zero a timer **nags**: the alarm plays on its target device
+and repeats every **20 seconds** until stopped or cancelled — like a kitchen timer,
+not a single chime. The announcement includes the label ("Your pasta timer is done").
+
+**TM-7 (constraint).** The alarm is delivered via `assist_satellite.announce`
+targeted at the stored device. If the timer has no target device or the announce call
+fails, it falls back to a single `btoddb_notifications.send` push (title "⏲️ Timer")
+and the timer completes — the alarm is never silently dropped, and a push nag would
+spam.
+
+**TM-8 (constraint).** Nagging is **capped at 10 minutes** measured from the due
+time. When the cap is reached without acknowledgement, the nag stops, a fallback push
+goes out, and the timer completes.
+
+**TM-9 (constraint).** `btoddb_ha_reminders.stop_timer` silences nagging timer(s):
+by `uid`, else the nagging timers for the supplied `device_id` (the satellite that
+heard "stop timer"), else **all** nagging timers — so a typed, deviceless "stop
+timer" always works. It returns `{success, stopped, confirmation}` ("Pasta timer
+stopped." / "No timer is going off."). Stopping completes the timer; other pending
+timers are unaffected.
+
+**TM-10 (constraint).** `btoddb_ha_reminders.cancel_timer` cancels a timer before
+**or** after zero (a nagging timer is silenced, so the card's one cancel button works
+in both states). It resolves by `uid`, by `label` (case-insensitive; duplicates all
+cancel), or — with neither — the sole active timer, so "cancel the timer" works
+without the model ever seeing a uid. Unresolvable requests are rejected with the
+active-timer list in the error so the agent can re-ask instead of guessing. Returns
+`{success, cancelled, confirmation}`. The prompt additionally renders a live
+active-timer list (`label: uid`) from `sensor.btoddb_timers` so unlabeled timers
+among several stay identifiable.
+
+**TM-11.** Timers persist in their **own** `Store`
+(`.storage/btoddb_ha_reminders_timers`), separate from the RM-* and LOC-* stores
+(LOC-4 precedent). All decisions (spoken durations, confirmations, nag-cap math,
+restart classification, stop/cancel resolution) live in the **pure, HA-free**
+`timers.py`, unit-tested under plain pytest; `timer_delivery.py` only schedules and
+calls services.
+
+**TM-12 (constraint).** On Home Assistant start (gated on the started event so
+`assist_satellite` is loaded), stored timers are re-armed. A timer that expired while
+HA was down starts nagging immediately with "went off N minutes ago" wording, subject
+to the TM-8 cap measured from the original due time; one long past its cap window
+falls back to the phone push instead of ringing.
+
+**TM-13.** Completed/stopped/cancelled timers are **removed** from the store — no
+retention (unlike LOC-5, a finished kitchen timer has no review value).
+
+**TM-14.** Active timers are surfaced through `sensor.btoddb_timers`: state = count
+of running/nagging timers, attributes = the full list (uid, label, device_id,
+duration_seconds, created_at, finishes_at, state: running | nagging). The card
+computes the live countdown client-side from `finishes_at` — the sensor does **not**
+update every second. The card's satellite picker labels devices from the
+device + area registries ("Satellite1 - Living Room"), since entity friendly names
+can be identical across satellites.
+
 ## Snooze (time-based reminders)
 
 **RM-10.** Every delivered time-based notification includes **actionable snooze buttons**
