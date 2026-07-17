@@ -98,6 +98,19 @@ interface TimerAttr {
 interface EntityRegistryEntry {
   entity_id: string;
   device_id: string | null;
+  area_id: string | null;
+}
+
+interface DeviceRegistryEntry {
+  id: string;
+  name: string | null;
+  name_by_user: string | null;
+  area_id: string | null;
+}
+
+interface AreaRegistryEntry {
+  area_id: string;
+  name: string;
 }
 
 const DEFAULT_ENTITY = "calendar.btoddb_reminders";
@@ -374,23 +387,46 @@ export class BtoddbRemindersCard extends LitElement {
 
   /**
    * Discover assist_satellite devices for the timer target picker. The entity
-   * registry maps satellite entities to their device ids; the friendly name comes
-   * from the entity state. Loaded once — satellites rarely change within a session.
+   * registry maps satellite entities to their device ids; the label is the
+   * **device** name (user-assigned first) suffixed with its area — "Satellite1 -
+   * Living Room" — because entity friendly names (e.g. "Satellite1 Assist
+   * satellite") can be identical across satellites and give the user no way to
+   * tell devices apart. Loaded once — satellites rarely change within a session.
    */
   private async _loadSatellites(): Promise<void> {
     try {
-      const entries = await this.hass.callWS<EntityRegistryEntry[]>({
-        type: "config/entity_registry/list",
-      });
+      const [entities, devices, areas] = await Promise.all([
+        this.hass.callWS<EntityRegistryEntry[]>({
+          type: "config/entity_registry/list",
+        }),
+        this.hass.callWS<DeviceRegistryEntry[]>({
+          type: "config/device_registry/list",
+        }),
+        this.hass.callWS<AreaRegistryEntry[]>({
+          type: "config/area_registry/list",
+        }),
+      ]);
+      const deviceById = new Map(devices.map((d) => [d.id, d]));
+      const areaNameById = new Map(areas.map((a) => [a.area_id, a.name]));
       const seen = new Set<string>();
       const satellites: { deviceId: string; name: string }[] = [];
-      for (const entry of entries) {
+      for (const entry of entities) {
         if (!entry.entity_id.startsWith("assist_satellite.")) continue;
         if (!entry.device_id || seen.has(entry.device_id)) continue;
         seen.add(entry.device_id);
+        const device = deviceById.get(entry.device_id);
+        const deviceName =
+          device?.name_by_user ?? device?.name ?? this._entityName(entry.entity_id);
+        // The entity's own area wins when set; otherwise the device's area.
+        const areaName = areaNameById.get(
+          entry.area_id ?? device?.area_id ?? "",
+        );
         satellites.push({
           deviceId: entry.device_id,
-          name: this._entityName(entry.entity_id),
+          name:
+            areaName && !deviceName.includes(areaName)
+              ? `${deviceName} - ${areaName}`
+              : deviceName,
         });
       }
       satellites.sort((a, b) => a.name.localeCompare(b.name));
