@@ -137,6 +137,25 @@ update:
       example: "FREQ=WEEKLY;BYDAY=MO"
       selector:
         text:
+    scope:
+      name: Scope
+      description: >-
+        For recurring reminders, which occurrences the edit applies to. "future"
+        (the default) edits the series from its next occurrence on. "this" edits
+        only the next occurrence — it becomes a detached one-shot with the new
+        message/time and the series skips ahead one step unchanged (rrule is
+        ignored). "all" edits the series and also renames the already-fired,
+        struck-through occurrences still on the calendar. Ignored for
+        non-recurring reminders.
+      required: false
+      default: future
+      example: this
+      selector:
+        select:
+          options:
+            - this
+            - future
+            - all
 
 snooze:
   name: Snooze reminder

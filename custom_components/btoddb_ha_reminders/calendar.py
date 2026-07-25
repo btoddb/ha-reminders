@@ -21,6 +21,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import CONF_CALENDAR_NAME, DATA_STORE, DEFAULT_CALENDAR_NAME, DOMAIN
 from .delivery import next_occurrence as _next_occurrence
+from .strikethrough import strike_text, strip_strikethrough
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -70,10 +71,15 @@ def _expand_recurring(
 
 
 def _to_calendar_event(event: ReminderEvent) -> CalendarEvent:
+    # An acked reminder — its moment has passed — stays on the calendar struck
+    # through (RM-16a). Decoration is applied at read time only; the stored
+    # summary stays clean.
+    end = event.start + EVENT_DURATION
+    acked = end <= dt_util.now()
     return CalendarEvent(
-        summary=event.summary,
+        summary=strike_text(event.summary) if acked else event.summary,
         start=event.start,
-        end=event.start + EVENT_DURATION,
+        end=end,
         uid=event.uid,
         # Pass rrule as description so the card can read it without risking
         # HA expanding the event into multiple occurrences (the roll-forward
@@ -142,4 +148,7 @@ class ReminderCalendarEntity(CalendarEntity):
     ) -> None:
         """Update a reminder (e.g. from the calendar card or calendar.update_event)."""
         start = event.start if isinstance(event.start, datetime) else None
-        await self._store.async_update_event(uid, summary=event.summary, start=start)
+        # Strip any read-time strikethrough so editing an acked event through HA's
+        # calendar dialog can't persist the combining characters (RM-16a).
+        summary = strip_strikethrough(event.summary) if event.summary else event.summary
+        await self._store.async_update_event(uid, summary=summary, start=start)
