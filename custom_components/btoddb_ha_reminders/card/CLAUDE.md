@@ -22,6 +22,13 @@ The Lovelace cards for the Reminders integration.
   `_timeCollapsed` / `_locationCollapsed` state, hiding or showing the rows for that group.
   The chevron rotates 90° when collapsed. `getCardSize()` counts a collapsed section as 1
   row so HA's masonry layout stays compact.
+- Saving an edit of a **recurring** time reminder first shows a scope chooser
+  (RM-17a) — *Only this occurrence / This and future / All occurrences* — passed to
+  `btoddb_ha_reminders.update` as `scope` (`this` / `future` / `all`). For "only
+  this" the card skips its usual snap-`when`-to-the-rrule adjustment (the engine
+  ignores `rrule` for that scope). The pure helpers (`needsScopePrompt`,
+  `buildTimeServiceData`) live in `src/reminder-logic.ts`, unit-tested by Vitest in
+  `src/reminder-logic.test.ts`.
 - A single merged list shows both kinds of reminder:
   - Time reminders read from the `calendar.btoddb_reminders` entity via the calendar REST
     API (`GET calendars/<entity>?start=&end=`); deleted via the `calendar/event/delete`

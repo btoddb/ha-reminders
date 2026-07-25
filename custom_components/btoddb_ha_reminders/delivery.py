@@ -39,12 +39,20 @@ FRESH_FALLBACK = timedelta(minutes=2)
 
 @dataclass(frozen=True)
 class ReminderEvent:
-    """A single time-based reminder. ``start`` is a timezone-aware local datetime."""
+    """
+    A single time-based reminder. ``start`` is a timezone-aware local datetime.
+
+    ``series_uid`` links a fired copy (RM-16) back to the recurring series it was
+    struck from; it is ``None`` for ordinary reminders and for the series itself.
+    A non-``None`` ``series_uid`` also marks the event as already delivered — the
+    delivery loop must never push it again.
+    """
 
     uid: str
     summary: str
     start: datetime
     rrule: str | None = None
+    series_uid: str | None = None
 
 
 def effective_watermark(stored: datetime | None, now: datetime) -> datetime:
@@ -62,8 +70,15 @@ def effective_watermark(stored: datetime | None, now: datetime) -> datetime:
 def due_events(
     events: list[ReminderEvent], watermark: datetime, now: datetime
 ) -> list[ReminderEvent]:
-    """Return events whose start falls in the half-open window ``(watermark, now]``."""
-    return [e for e in events if watermark < e.start <= now]
+    """
+    Return events whose start falls in the half-open window ``(watermark, now]``.
+
+    Fired copies (``series_uid`` set, RM-16) are never due: they exist only so an
+    already-delivered occurrence stays visible on the calendar, and skipping them
+    here keeps a crash between persisting the copy and advancing the watermark
+    from re-delivering it.
+    """
+    return [e for e in events if e.series_uid is None and watermark < e.start <= now]
 
 
 _BYDAY_TO_WEEKDAY: dict[str, int] = {
@@ -435,6 +450,56 @@ def validate_rrule(rrule: str, start: datetime) -> str | None:
     if freq == "MONTHLY":
         return _validate_monthly(parts, start)
     return None
+
+
+def fired_copy(event: ReminderEvent) -> ReminderEvent:
+    """
+    Freeze a just-fired occurrence of a recurring reminder as a one-shot (RM-16).
+
+    The copy keeps the summary and start but gets a fresh uid, no rrule, and a
+    ``series_uid`` pointing at the series, so the occurrence stays on the calendar
+    (struck through once past) while the series itself rolls forward. Editing the
+    series later never touches the copy — it is a snapshot of what actually fired.
+    """
+    return ReminderEvent(
+        uid=uuid.uuid4().hex,
+        summary=event.summary,
+        start=event.start,
+        rrule=None,
+        series_uid=event.uid,
+    )
+
+
+def split_occurrence(
+    event: ReminderEvent,
+    *,
+    summary: str | None = None,
+    start: datetime | None = None,
+) -> tuple[ReminderEvent, ReminderEvent] | None:
+    """
+    Split the next occurrence off a recurring series for an "only this" edit (RM-17).
+
+    Returns ``(one_shot, advanced_series)``: a one-shot carrying the edited
+    ``summary``/``start`` (falling back to the series' values) plus the series
+    advanced one step past its current anchor, otherwise unchanged. Returns ``None``
+    if ``event`` is not recurring or its rrule's next occurrence can't be computed.
+
+    The one-shot deliberately gets no ``series_uid``: it still has to be delivered
+    (``series_uid`` marks already-fired copies), and the user detached it from the
+    series on purpose, so a later "edit all occurrences" leaves it alone.
+    """
+    if event.rrule is None:
+        return None
+    nxt = next_occurrence(event.rrule, event.start)
+    if nxt is None:
+        return None
+    one_shot = ReminderEvent(
+        uid=uuid.uuid4().hex,
+        summary=summary if summary is not None else event.summary,
+        start=start if start is not None else event.start,
+        rrule=None,
+    )
+    return one_shot, dataclasses.replace(event, start=nxt)
 
 
 def snoozed_event(

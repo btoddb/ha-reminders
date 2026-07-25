@@ -60,14 +60,15 @@ from .const import (
     NOTIFY_TITLE_LOCATION,
 )
 from .delivery import (
-    CATCHUP_FLOOR,
     ReminderEvent,
     advance_recurring,
     build_snooze_notify_data,
     due_events,
     effective_watermark,
+    fired_copy,
     parse_snooze_action,
     snoozed_event,
+    split_occurrence,
     validate_rrule,
 )
 from .location import (
@@ -82,9 +83,9 @@ from .spoken_time import build_create_response, build_update_response
 from .store import ReminderStore
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Coroutine
     from datetime import datetime
-    from typing import NoReturn
+    from typing import Any, NoReturn
 
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import Event
@@ -126,6 +127,16 @@ ATTR_WHEN = "when"
 ATTR_IN_MINUTES = "in_minutes"
 ATTR_RRULE = "rrule"
 ATTR_MINUTES = "minutes"
+ATTR_SCOPE = "scope"
+
+# Edit scopes for recurring reminders (RM-17). "future" (the default) edits the
+# series from its next occurrence on; "this" freezes only the next occurrence as an
+# edited one-shot and advances the series one step; "all" additionally renames the
+# already-fired copies of the series. Ignored for non-recurring reminders.
+SCOPE_THIS = "this"
+SCOPE_FUTURE = "future"
+SCOPE_ALL = "all"
+SCOPE_VALUES = (SCOPE_THIS, SCOPE_FUTURE, SCOPE_ALL)
 
 SERVICE_CREATE_LOCATION = "create_location"
 SERVICE_UPDATE_LOCATION = "update_location"
@@ -176,6 +187,7 @@ UPDATE_SCHEMA = vol.Schema(
         vol.Optional(ATTR_WHEN): vol.Any(None, cv.string),
         vol.Optional(ATTR_IN_MINUTES): _optional_minutes,
         vol.Optional(ATTR_RRULE): vol.Any(None, cv.string),
+        vol.Optional(ATTR_SCOPE, default=SCOPE_FUTURE): vol.In(SCOPE_VALUES),
     }
 )
 
@@ -212,9 +224,9 @@ SNOOZE_SCHEMA = vol.Schema(
     }
 )
 
-# Keep pruned history a day past the catch-up floor so the calendar can still show the
-# most recent fired reminders without growing unbounded.
-PRUNE_RETENTION = CATCHUP_FLOOR + timedelta(days=1)
+# An acked (fired) reminder stays on the calendar, struck through, for a week before
+# being pruned (RM-16b) — same retention as delivered location reminders (LOC-5).
+PRUNE_RETENTION = timedelta(days=7)
 
 # How often delivered location reminders are swept (LOC-5). Coarse: state-change-driven
 # pruning alone would never fire for a person who stops moving, so a light periodic
@@ -498,6 +510,91 @@ def _resolve_start(
     return None
 
 
+async def _async_update_only_this(
+    store: ReminderStore,
+    existing: ReminderEvent,
+    message: str | None,
+    start: datetime | None,
+    now: datetime,
+) -> ServiceResponse:
+    """
+    Apply an "only this occurrence" edit to a recurring reminder (RM-17).
+
+    Freezes the next occurrence as an edited one-shot and advances the series one
+    step; the series (message, time pattern, rrule) is otherwise untouched, so any
+    rrule in the call is deliberately ignored by the caller.
+    """
+    split = split_occurrence(existing, summary=message, start=start)
+    if split is None:
+        msg = (
+            f"Could not compute the next occurrence of {existing.rrule!r} "
+            "to split this occurrence off the series."
+        )
+        _reject_input(msg)
+    one_shot, advanced = split
+    await store.async_add_event(one_shot)
+    await store.async_replace_event(existing.uid, advanced)
+    return build_update_response(one_shot.summary, one_shot.start, now, None)
+
+
+def _make_update_handler(
+    store: ReminderStore,
+) -> Callable[[ServiceCall], Coroutine[Any, Any, ServiceResponse]]:
+    """Build the ``btoddb_ha_reminders.update`` handler bound to ``store``."""
+
+    async def _handle_update(call: ServiceCall) -> ServiceResponse:
+        uid: str = call.data[ATTR_UID]
+        message: str | None = call.data.get(ATTR_MESSAGE)
+        now = dt_util.now()
+        start = _resolve_start(
+            now, call.data.get(ATTR_WHEN), call.data.get(ATTR_IN_MINUTES)
+        )
+        rrule_in_call = ATTR_RRULE in call.data
+        new_rrule: str | None = (
+            (call.data.get(ATTR_RRULE) or None) if rrule_in_call else None
+        )
+        if message is None and start is None and not rrule_in_call:
+            msg = (
+                "Provide at least one of message, when, in_minutes, or rrule to update."
+            )
+            _reject_input(msg)
+        if start is not None and start < now:
+            msg = f"Cannot update reminder to a time in the past ({start.isoformat()})."
+            _reject_input(msg)
+        scope: str = call.data.get(ATTR_SCOPE, SCOPE_FUTURE)
+        existing = next((e for e in store.events if e.uid == uid), None)
+        if scope == SCOPE_THIS and existing is not None and existing.rrule is not None:
+            return await _async_update_only_this(store, existing, message, start, now)
+        if new_rrule is not None:
+            check_start = (
+                start if start is not None else (existing.start if existing else now)
+            )
+            err = validate_rrule(new_rrule, check_start)
+            if err is not None:
+                _reject_input(err)
+        found = await store.async_update_event(
+            uid,
+            summary=message,
+            start=start,
+            rrule=new_rrule,
+            rrule_changed=rrule_in_call,
+        )
+        if not found:
+            msg = f"Reminder with uid {uid!r} not found."
+            _reject_input(msg)
+        if scope == SCOPE_ALL and message is not None:
+            # All occurrences (RM-17): also rename the already-fired copies of the
+            # series so the struck-through history matches. Times stay historical.
+            await store.async_update_series_summaries(uid, message)
+        updated = next((e for e in store.events if e.uid == uid), None)
+        if updated is None:
+            msg = f"Reminder with uid {uid!r} not found after update."
+            _reject_input(msg)
+        return build_update_response(updated.summary, updated.start, now, updated.rrule)
+
+    return _handle_update
+
+
 @callback
 def _async_register_service(hass: HomeAssistant, store: ReminderStore) -> None:
     """Register ``btoddb_ha_reminders.create`` and ``update`` (idempotent)."""
@@ -531,48 +628,6 @@ def _async_register_service(hass: HomeAssistant, store: ReminderStore) -> None:
         await store.async_add_event(event)
         return build_create_response(message, start, now, rrule)
 
-    async def _handle_update(call: ServiceCall) -> ServiceResponse:
-        uid: str = call.data[ATTR_UID]
-        message: str | None = call.data.get(ATTR_MESSAGE)
-        now = dt_util.now()
-        start = _resolve_start(
-            now, call.data.get(ATTR_WHEN), call.data.get(ATTR_IN_MINUTES)
-        )
-        rrule_in_call = ATTR_RRULE in call.data
-        new_rrule: str | None = (
-            (call.data.get(ATTR_RRULE) or None) if rrule_in_call else None
-        )
-        if message is None and start is None and not rrule_in_call:
-            msg = (
-                "Provide at least one of message, when, in_minutes, or rrule to update."
-            )
-            _reject_input(msg)
-        if start is not None and start < now:
-            msg = f"Cannot update reminder to a time in the past ({start.isoformat()})."
-            _reject_input(msg)
-        if new_rrule is not None:
-            check_start = start or next(
-                (e.start for e in store.events if e.uid == uid), now
-            )
-            err = validate_rrule(new_rrule, check_start)
-            if err is not None:
-                _reject_input(err)
-        found = await store.async_update_event(
-            uid,
-            summary=message,
-            start=start,
-            rrule=new_rrule,
-            rrule_changed=rrule_in_call,
-        )
-        if not found:
-            msg = f"Reminder with uid {uid!r} not found."
-            _reject_input(msg)
-        updated = next((e for e in store.events if e.uid == uid), None)
-        if updated is None:
-            msg = f"Reminder with uid {uid!r} not found after update."
-            _reject_input(msg)
-        return build_update_response(updated.summary, updated.start, now, updated.rrule)
-
     hass.services.async_register(
         DOMAIN,
         SERVICE_CREATE,
@@ -583,7 +638,7 @@ def _async_register_service(hass: HomeAssistant, store: ReminderStore) -> None:
     hass.services.async_register(
         DOMAIN,
         SERVICE_UPDATE,
-        _handle_update,
+        _make_update_handler(store),
         schema=UPDATE_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
@@ -729,6 +784,9 @@ class ReminderDelivery:
             )
             next_event = advance_recurring(event, now)
             if next_event is not None:
+                # Freeze the fired occurrence as a one-shot copy (RM-16) so it stays
+                # on the calendar (struck through) after the series rolls forward.
+                await self._store.async_add_event(fired_copy(event))
                 await self._store.async_replace_event(event.uid, next_event)
 
         # Self-heal recurring events whose start slipped behind the 6h watermark

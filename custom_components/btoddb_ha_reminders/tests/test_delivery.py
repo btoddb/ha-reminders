@@ -753,3 +753,62 @@ def test_rrule_step_no_freq_returns_none():
 
 def test_rrule_step_invalid_interval_returns_none():
     assert rrule_step("FREQ=DAILY;INTERVAL=abc") is None
+
+
+# --- Fired copies and edit scopes (RM-16, RM-17) ---------------------------------
+
+fired_copy = delivery.fired_copy
+split_occurrence = delivery.split_occurrence
+
+
+def _series(uid="series1", rrule="FREQ=WEEKLY;BYDAY=SU"):
+    # NOW (2026-06-21) is a Sunday, so BYDAY=SU matches the anchor.
+    return ReminderEvent(uid=uid, summary="water plants", start=NOW, rrule=rrule)
+
+
+def test_fired_copy_is_a_frozen_one_shot_linked_to_the_series():
+    copy = fired_copy(_series())
+    assert copy.uid != "series1"
+    assert copy.summary == "water plants"
+    assert copy.start == NOW
+    assert copy.rrule is None
+    assert copy.series_uid == "series1"
+
+
+def test_due_events_skips_fired_copies():
+    # A fired copy inside the window must never be delivered (again).
+    watermark = NOW - timedelta(minutes=5)
+    copy = fired_copy(_series(rrule="FREQ=DAILY"))
+    live = _ev("live", -2)
+    assert due_events([copy, live], watermark, NOW) == [live]
+
+
+def test_split_occurrence_detaches_one_shot_and_advances_series():
+    got = split_occurrence(_series(), summary="new text")
+    assert got is not None
+    one_shot, advanced = got
+    assert one_shot.summary == "new text"
+    assert one_shot.start == NOW  # falls back to the series anchor
+    assert one_shot.rrule is None
+    assert one_shot.series_uid is None  # still deliverable, detached on purpose
+    assert advanced.uid == "series1"
+    assert advanced.start == NOW + timedelta(weeks=1)
+    assert advanced.rrule == "FREQ=WEEKLY;BYDAY=SU"
+    assert advanced.summary == "water plants"  # series text untouched
+
+
+def test_split_occurrence_applies_edited_start():
+    moved = NOW + timedelta(days=2, hours=3)
+    got = split_occurrence(_series(), start=moved)
+    assert got is not None
+    one_shot, advanced = got
+    assert one_shot.start == moved
+    assert advanced.start == NOW + timedelta(weeks=1)
+
+
+def test_split_occurrence_returns_none_for_non_recurring():
+    assert split_occurrence(_ev("oneshot", 5)) is None
+
+
+def test_split_occurrence_returns_none_for_unsupported_rrule():
+    assert split_occurrence(_series(rrule="FREQ=YEARLY")) is None

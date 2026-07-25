@@ -13,6 +13,12 @@
 
 import { LitElement, css, html, nothing } from "lit";
 
+import {
+  buildTimeServiceData,
+  needsScopePrompt,
+  type EditScope,
+} from "./reminder-logic";
+
 interface HassEntity {
   state: string;
   last_updated: string;
@@ -241,6 +247,7 @@ export class BtoddbRemindersCard extends LitElement {
     _busy: { state: true },
     _error: { state: true },
     _editingUid: { state: true },
+    _scopePrompt: { state: true },
     _timeCollapsed: { state: true },
     _locationCollapsed: { state: true },
   };
@@ -267,6 +274,10 @@ export class BtoddbRemindersCard extends LitElement {
   private _busy = false;
   private _error = "";
   private _editingUid = "";
+  // True while the "apply to which occurrences?" chooser is showing (RM-17).
+  private _scopePrompt = false;
+  // Whether the reminder being edited was recurring when the edit started.
+  private _editingWasRecurring = false;
   private _timeCollapsed = false;
   private _locationCollapsed = false;
 
@@ -440,7 +451,7 @@ export class BtoddbRemindersCard extends LitElement {
     );
   }
 
-  private async _add(): Promise<void> {
+  private async _add(scope?: EditScope): Promise<void> {
     const message = this._message.trim();
     if (!message) {
       this._error = "Enter a reminder message.";
@@ -451,11 +462,23 @@ export class BtoddbRemindersCard extends LitElement {
       return;
     }
     const editingUid = this._editingUid;
+    // Editing a recurring reminder: first ask which occurrences the edit
+    // applies to (RM-17); the chooser's buttons call back with a scope.
+    if (needsScopePrompt(editingUid, this._editingWasRecurring, scope)) {
+      this._scopePrompt = true;
+      this._error = "";
+      return;
+    }
+    this._scopePrompt = false;
     const rrule = this._buildRrule();
     // Shift the anchor date to match the recurrence rule so the backend's
-    // BYDAY-vs-start / BYMONTHDAY-vs-start validation always passes.
+    // BYDAY-vs-start / BYMONTHDAY-vs-start validation always passes. Not for
+    // "only this occurrence": the engine ignores the rrule there, and the user
+    // may be deliberately moving this one occurrence off the series' pattern.
     let when = this._when;
-    if (rrule && this._freq === "weekly") {
+    if (scope === "this") {
+      // keep `when` exactly as entered
+    } else if (rrule && this._freq === "weekly") {
       when = this._adjustToWeekday(when, this._weekday);
     } else if (rrule && this._freq === "monthly") {
       if (this._monthMode === "weekday") {
@@ -464,10 +487,13 @@ export class BtoddbRemindersCard extends LitElement {
         when = this._adjustToMonthDay(when, this._monthDay);
       }
     }
-    const serviceData: Record<string, unknown> = { message, when };
-    if (rrule) serviceData.rrule = rrule;
-    // When editing and repeat has been turned off, explicitly clear the rrule.
-    if (editingUid && !rrule) serviceData.rrule = null;
+    const serviceData = buildTimeServiceData({
+      message,
+      when,
+      rrule,
+      editingUid,
+      scope,
+    });
 
     this._busy = true;
     this._error = "";
@@ -482,6 +508,7 @@ export class BtoddbRemindersCard extends LitElement {
           true,
         );
         this._editingUid = "";
+        this._editingWasRecurring = false;
       } else {
         // `btoddb_ha_reminders.create` is a response-only service, so returnResponse must be true.
         await this.hass.callService(
@@ -580,6 +607,8 @@ export class BtoddbRemindersCard extends LitElement {
 
   private _startEditTime(item: TimeItem): void {
     this._editingUid = item.uid;
+    this._editingWasRecurring = !!item.rrule;
+    this._scopePrompt = false;
     this._mode = "time";
     this._message = item.summary;
     this._when = toLocalInput(item.start);
@@ -635,6 +664,8 @@ export class BtoddbRemindersCard extends LitElement {
 
   private _startEditLocation(item: LocationItem): void {
     this._editingUid = item.uid;
+    this._editingWasRecurring = false;
+    this._scopePrompt = false;
     this._mode = "location";
     this._locMessage = item.summary;
     this._locPerson = item.person;
@@ -646,6 +677,8 @@ export class BtoddbRemindersCard extends LitElement {
 
   private _cancelEdit(): void {
     this._editingUid = "";
+    this._editingWasRecurring = false;
+    this._scopePrompt = false;
     this._message = "";
     this._when = defaultWhen();
     this._repeatOpen = false;
@@ -988,6 +1021,49 @@ export class BtoddbRemindersCard extends LitElement {
     `;
   }
 
+  /** "Apply changes to which occurrences?" chooser, shown on Save of a recurring reminder. */
+  private _renderScopePrompt() {
+    return html`
+      <div class="scope-prompt">
+        <span class="scope-prompt-label">Apply changes to:</span>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          ?disabled=${this._busy}
+          @click=${() => this._add("this")}
+        >
+          Only this occurrence
+        </button>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          ?disabled=${this._busy}
+          @click=${() => this._add("future")}
+        >
+          This and future
+        </button>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          ?disabled=${this._busy}
+          @click=${() => this._add("all")}
+        >
+          All occurrences
+        </button>
+        <button
+          type="button"
+          class="btn btn-text"
+          ?disabled=${this._busy}
+          @click=${() => {
+            this._scopePrompt = false;
+          }}
+        >
+          Back
+        </button>
+      </div>
+    `;
+  }
+
   private _renderTimeAddRow() {
     const isEditing = !!this._editingUid;
     return html`
@@ -1032,6 +1108,7 @@ export class BtoddbRemindersCard extends LitElement {
             ${isEditing ? "Save" : "Add"}
           </button>
         </div>
+        ${this._scopePrompt ? this._renderScopePrompt() : nothing}
         ${this._renderRepeatDisclosure()}
       </div>
     `;
@@ -1379,6 +1456,28 @@ export class BtoddbRemindersCard extends LitElement {
         var(--primary-color, #03a9f4) 10%,
         transparent
       );
+    }
+    .scope-prompt {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px solid var(--primary-color, #03a9f4);
+      border-radius: 4px;
+    }
+    .scope-prompt-label {
+      color: var(--secondary-text-color, #727272);
+      font-size: 13px;
+    }
+    .btn-text {
+      background: transparent;
+      color: var(--secondary-text-color, #727272);
+      border: none;
+    }
+    .btn-text:hover:not(:disabled) {
+      color: var(--primary-text-color, #212121);
     }
     .error {
       color: var(--error-color, #db4437);

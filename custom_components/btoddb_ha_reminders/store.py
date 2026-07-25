@@ -57,6 +57,7 @@ class ReminderStore:
                     summary=raw["summary"],
                     start=start,
                     rrule=raw.get("rrule"),
+                    series_uid=raw.get("series_uid"),
                 )
             )
         self.events = events
@@ -72,6 +73,9 @@ class ReminderStore:
                     "summary": e.summary,
                     "start": e.start.isoformat(),
                     **({"rrule": e.rrule} if e.rrule is not None else {}),
+                    **(
+                        {"series_uid": e.series_uid} if e.series_uid is not None else {}
+                    ),
                 }
                 for e in self.events
             ],
@@ -148,6 +152,28 @@ class ReminderStore:
             self.events = updated
             await self._async_persist()
         return found
+
+    async def async_update_series_summaries(
+        self, series_uid: str, summary: str
+    ) -> None:
+        """
+        Rewrite the summary on every fired copy of a recurring series (RM-17).
+
+        Used by the update service's ``scope: all`` so an "edit all occurrences"
+        also renames the already-fired, struck-through occurrences on the calendar.
+        Starts are never touched — history keeps its times.
+        """
+        changed = False
+        updated: list[ReminderEvent] = []
+        for e in self.events:
+            if e.series_uid == series_uid and e.summary != summary:
+                updated.append(dataclasses.replace(e, summary=summary))
+                changed = True
+            else:
+                updated.append(e)
+        if changed:
+            self.events = updated
+            await self._async_persist()
 
     async def async_replace_event(self, uid: str, new_event: ReminderEvent) -> None:
         """Replace a reminder in-place by uid (e.g. advance a recurring one)."""

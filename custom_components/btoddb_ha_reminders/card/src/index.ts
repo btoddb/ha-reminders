@@ -11,7 +11,7 @@ import "./calendar-list-card";
 import "./reminders-card";
 import "./timer-card";
 
-const VERSION = "v0.0.85";
+const VERSION = "v0.0.86";
 
 console.info(
   `%c BTODDB-HA-REMINDERS %c ${VERSION} `,

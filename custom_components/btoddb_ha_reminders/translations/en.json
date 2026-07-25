@@ -78,6 +78,10 @@
         "rrule": {
           "name": "Recurrence rule",
           "description": "New RRULE (FREQ=DAILY, FREQ=WEEKLY;BYDAY=MO, FREQ=MONTHLY;BYMONTHDAY=15, etc.). Pass empty or null to clear. Omit to leave unchanged."
+        },
+        "scope": {
+          "name": "Scope",
+          "description": "For recurring reminders: future (default) edits the series going forward, this edits only the next occurrence (detached as a one-shot), all also renames already-fired occurrences. Ignored for non-recurring reminders."
         }
       }
     },

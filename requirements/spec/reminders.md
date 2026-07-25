@@ -183,3 +183,58 @@ The service can also be invoked directly from automations, scripts, or the dashb
 `btoddb_notifications.send` are honoured only by the HA Companion mobile app. For
 `notify.persistent_notification` or notify groups the keys are silently ignored — no
 regression for non-mobile users.
+
+## Acknowledged reminders (issue #71)
+
+"Acknowledged" currently just means the reminder's time has passed — there is no
+formal acknowledge action yet.
+
+**RM-16.** When a recurring reminder fires, the delivery loop stores a **fired copy**
+alongside the rolled-forward series: a one-shot snapshot of the fired occurrence
+(fresh uid, no rrule, `series_uid` = the series' uid, summary and start preserved).
+The copy keeps the occurrence visible on the calendar after the series advances, and
+because it is a frozen snapshot, later edits to the series don't rewrite history.
+A non-null `series_uid` also marks an event as already delivered: `due_events`
+skips such events, so a crash between persisting the copy and advancing the
+watermark can't re-deliver it. The recurring series itself stays managed by the
+existing roll-forward — fired copies are inert.
+
+**RM-16a.** An acked reminder (its 1-minute calendar slot has fully passed) stays on
+the calendar **struck through**. The built-in HA calendar dashboard renders plain
+text only, so the strikethrough is applied by interleaving the Unicode combining
+long stroke overlay (U+0336) into the summary — at calendar **read time** only
+(`async_get_events` / the `event` property); stored summaries are never decorated.
+`async_update_event` strips the combining characters so an edit made through HA's
+calendar dialog can't persist them.
+
+**RM-16b.** Fired reminders (one-shots and fired copies) are pruned **7 days** after
+their start — matching LOC-5's retention for delivered location reminders — so the
+calendar shows a week of struck-through history without growing unbounded. (This
+supersedes the earlier ~31h `CATCHUP_FLOOR + 1 day` retention.) Acked reminders do
+**not** appear in the Agenda card: it already excludes events that have ended, and
+the reminders card's list likewise shows upcoming reminders only.
+
+## Editing recurring reminders (issue #73)
+
+**RM-17.** `btoddb_ha_reminders.update` accepts an optional `scope` for recurring
+reminders — `future` (default), `this`, or `all`:
+
+- `future` — edit the series from its next occurrence on (the pre-scope behavior).
+  Fired copies are untouched, so the past keeps what actually fired.
+- `this` — edit **only the next occurrence**: it is detached from the series as a
+  one-shot carrying the new message/time, and the series advances one step,
+  otherwise unchanged. Any `rrule` in the call is ignored, and the detached
+  one-shot gets **no** `series_uid` (it still has to be delivered, and the user
+  deliberately split it off, so a later `all` edit leaves it alone).
+- `all` — `future`, plus the summaries of the series' fired copies are rewritten to
+  match (their historical start times are never moved).
+
+`scope` is ignored for non-recurring reminders. Conversation-agent function
+definitions may expose `scope` so a voice edit can ask which occurrences to change.
+
+**RM-17a.** The reminders card asks rather than guessing: saving an edit of a
+reminder that was recurring when the edit began shows a chooser — **Only this
+occurrence / This and future / All occurrences** — and passes the choice as
+`scope`. For "only this" the card skips its usual snap-`when`-to-the-rrule-pattern
+adjustment, since the user may be deliberately moving that one occurrence off the
+series' pattern.
