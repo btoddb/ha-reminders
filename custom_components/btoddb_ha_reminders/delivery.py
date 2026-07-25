@@ -67,6 +67,18 @@ def effective_watermark(stored: datetime | None, now: datetime) -> datetime:
     return max(floor, base)
 
 
+def already_fired(event: ReminderEvent, events: list[ReminderEvent]) -> bool:
+    """
+    Report whether a fired copy proves this occurrence was delivered (RM-16).
+
+    A copy with ``series_uid == event.uid`` at the same ``start`` is only ever
+    persisted right after the occurrence's notification went out, so its presence
+    means the series event itself must not be delivered again — it just needs to
+    be rolled forward (a crash interrupted the advance).
+    """
+    return any(e.series_uid == event.uid and e.start == event.start for e in events)
+
+
 def due_events(
     events: list[ReminderEvent], watermark: datetime, now: datetime
 ) -> list[ReminderEvent]:
@@ -76,9 +88,17 @@ def due_events(
     Fired copies (``series_uid`` set, RM-16) are never due: they exist only so an
     already-delivered occurrence stays visible on the calendar, and skipping them
     here keeps a crash between persisting the copy and advancing the watermark
-    from re-delivering it.
+    from re-delivering it. A recurring series whose current occurrence already has
+    a matching fired copy is skipped for the same reason — the copy is proof the
+    occurrence was delivered and only the series advance was lost.
     """
-    return [e for e in events if e.series_uid is None and watermark < e.start <= now]
+    return [
+        e
+        for e in events
+        if e.series_uid is None
+        and watermark < e.start <= now
+        and not already_fired(e, events)
+    ]
 
 
 _BYDAY_TO_WEEKDAY: dict[str, int] = {

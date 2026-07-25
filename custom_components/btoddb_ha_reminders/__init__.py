@@ -62,6 +62,7 @@ from .const import (
 from .delivery import (
     ReminderEvent,
     advance_recurring,
+    already_fired,
     build_snooze_notify_data,
     due_events,
     effective_watermark,
@@ -789,12 +790,30 @@ class ReminderDelivery:
                 await self._store.async_add_event(fired_copy(event))
                 await self._store.async_replace_event(event.uid, next_event)
 
-        # Self-heal recurring events whose start slipped behind the 6h watermark
-        # floor (e.g. after a long HA outage). These events are not in due_events
-        # (missed the window) and would be silently pruned if left in the past —
-        # advance them to the next future occurrence so they keep firing.
+        # Two repair passes over recurring events left in the past:
+        #
+        # 1. Recovery (RM-16): a fired copy matching the series' current occurrence
+        #    proves the notification went out and only the series advance was lost
+        #    (crash between persisting the copy and replacing the series). Advance
+        #    without re-sending — due_events already skipped it for the same reason.
+        # 2. Self-heal: the start slipped behind the 6h watermark floor (e.g. after
+        #    a long HA outage). The occurrence was missed, not delivered; advance so
+        #    the series keeps firing instead of being silently pruned.
         for event in list(self._store.events):
-            if event.rrule is not None and event.start <= watermark:
+            if event.rrule is None:
+                continue
+            if event.start <= now and already_fired(event, self._store.events):
+                next_event = advance_recurring(event, now)
+                if next_event is not None:
+                    await self._store.async_replace_event(event.uid, next_event)
+                    _LOGGER.debug(
+                        "Recurring reminder %r already fired at %s (copy found); "
+                        "advanced to next occurrence at %s without re-sending",
+                        event.summary,
+                        event.start.isoformat(),
+                        next_event.start.isoformat(),
+                    )
+            elif event.start <= watermark:
                 next_event = advance_recurring(event, now)
                 if next_event is not None:
                     await self._store.async_replace_event(event.uid, next_event)

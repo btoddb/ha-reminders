@@ -812,3 +812,42 @@ def test_split_occurrence_returns_none_for_non_recurring():
 
 def test_split_occurrence_returns_none_for_unsupported_rrule():
     assert split_occurrence(_series(rrule="FREQ=YEARLY")) is None
+
+
+already_fired = delivery.already_fired
+
+
+def test_already_fired_matches_copy_with_same_series_and_start():
+    series = _series(rrule="FREQ=DAILY")
+    copy = fired_copy(series)
+    assert already_fired(series, [series, copy])
+
+
+def test_already_fired_ignores_copies_of_older_occurrences():
+    # A copy from yesterday's occurrence must not mask today's delivery.
+    series = _series(rrule="FREQ=DAILY")
+    old_copy = fired_copy(
+        ReminderEvent(
+            uid=series.uid,
+            summary=series.summary,
+            start=series.start - timedelta(days=1),
+            rrule=series.rrule,
+        )
+    )
+    assert not already_fired(series, [series, old_copy])
+
+
+def test_due_events_skips_series_whose_occurrence_has_a_fired_copy():
+    # Crash between persisting the fired copy and advancing the series: both sit
+    # in the store at the same past start. The copy is proof of delivery, so
+    # neither may be due (RM-16).
+    watermark = NOW - timedelta(minutes=5)
+    series = ReminderEvent(
+        uid="series1",
+        summary="water plants",
+        start=NOW - timedelta(minutes=2),
+        rrule="FREQ=DAILY",
+    )
+    copy = fired_copy(series)
+    live = _ev("live", -1)
+    assert due_events([series, copy, live], watermark, NOW) == [live]

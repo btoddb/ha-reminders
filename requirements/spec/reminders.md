@@ -196,8 +196,14 @@ The copy keeps the occurrence visible on the calendar after the series advances,
 because it is a frozen snapshot, later edits to the series don't rewrite history.
 A non-null `series_uid` also marks an event as already delivered: `due_events`
 skips such events, so a crash between persisting the copy and advancing the
-watermark can't re-deliver it. The recurring series itself stays managed by the
-existing roll-forward — fired copies are inert.
+watermark can't re-deliver it. The copy is also **proof of delivery for the
+series occurrence it snapshots**: if a crash lands between persisting the copy
+and advancing the series, the store holds both the copy and the series at the
+same past start — `due_events` skips a series whose current occurrence has a
+matching copy (`series_uid` == series uid, same start), and the delivery loop's
+repair pass advances that series to its next occurrence **without re-sending**.
+The recurring series itself stays managed by the existing roll-forward — fired
+copies are inert.
 
 **RM-16a.** An acked reminder (its 1-minute calendar slot has fully passed) stays on
 the calendar **struck through**. The built-in HA calendar dashboard renders plain
