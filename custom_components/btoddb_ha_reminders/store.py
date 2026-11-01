@@ -200,11 +200,15 @@ class ReminderStore:
 
     async def async_prune(self, before: datetime) -> None:
         """Drop already-delivered events older than ``before`` to bound storage."""
-        kept = [e for e in self.events if e.start >= before]
+        # Compare instants; a same-zone comparison ignores fold (RM-18c).
+        cutoff = dt_util.as_utc(before)
+        kept = [e for e in self.events if dt_util.as_utc(e.start) >= cutoff]
         if len(kept) != len(self.events):
             self.events = kept
             await self._async_persist()
 
     def in_range(self, start: datetime, end: datetime) -> list[ReminderEvent]:
         """Events whose start falls within ``[start, end]`` (calendar entity query)."""
-        return [e for e in self.events if start <= e.start <= end]
+        # Compare instants; a same-zone comparison ignores fold (RM-18c).
+        lo, hi = dt_util.as_utc(start), dt_util.as_utc(end)
+        return [e for e in self.events if lo <= dt_util.as_utc(e.start) <= hi]

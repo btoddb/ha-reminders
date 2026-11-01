@@ -561,7 +561,7 @@ def _make_update_handler(
                 "Provide at least one of message, when, in_minutes, or rrule to update."
             )
             _reject_input(msg)
-        # Compare instants; a same-zone comparison ignores fold (RM-18b).
+        # Compare instants; a same-zone comparison ignores fold (RM-18c).
         if start is not None and dt_util.as_utc(start) < dt_util.as_utc(now):
             msg = f"Cannot update reminder to a time in the past ({start.isoformat()})."
             _reject_input(msg)
@@ -802,10 +802,16 @@ class ReminderDelivery:
         # 2. Self-heal: the start slipped behind the 6h watermark floor (e.g. after
         #    a long HA outage). The occurrence was missed, not delivered; advance so
         #    the series keeps firing instead of being silently pruned.
+        #
+        # Both compare instants: a start in the second pass of a repeated fall-back
+        # hour is still ahead of a first-pass now/watermark (RM-18c).
+        now_utc = dt_util.as_utc(now)
+        watermark_utc = dt_util.as_utc(watermark)
         for event in list(self._store.events):
             if event.rrule is None:
                 continue
-            if event.start <= now and already_fired(event, self._store.events):
+            start_utc = dt_util.as_utc(event.start)
+            if start_utc <= now_utc and already_fired(event, self._store.events):
                 next_event = advance_recurring(event, now)
                 if next_event is not None:
                     await self._store.async_replace_event(event.uid, next_event)
@@ -816,7 +822,7 @@ class ReminderDelivery:
                         event.start.isoformat(),
                         next_event.start.isoformat(),
                     )
-            elif event.start <= watermark:
+            elif start_utc <= watermark_utc:
                 next_event = advance_recurring(event, now)
                 if next_event is not None:
                     await self._store.async_replace_event(event.uid, next_event)
@@ -829,7 +835,8 @@ class ReminderDelivery:
                     )
 
         await self._store.async_set_watermark(now)
-        await self._store.async_prune(now - PRUNE_RETENTION)
+        # Retention is elapsed time: subtract in UTC so fold is honored (RM-18c).
+        await self._store.async_prune(dt_util.as_utc(now) - PRUNE_RETENTION)
 
 
 class LocationDelivery:

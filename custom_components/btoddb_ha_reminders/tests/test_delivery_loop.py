@@ -10,7 +10,7 @@ the series advance was lost.
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from conftest import load_package
@@ -93,3 +93,53 @@ def test_crash_between_copy_and_advance_recovers_without_resending():
     advanced = next(e for e in store.events if e.uid == "series1")
     assert advanced.start == series.start + timedelta(days=1)
     assert store.watermark is not None and store.watermark >= now
+
+
+def test_series_in_repeated_hour_waits_for_second_pass(la_tz, monkeypatch):
+    # A daily series at 01:30 PST (fold=1) ticked at 01:35 PDT is still 55 real
+    # minutes ahead: it was neither missed nor due, so it must stay put and fire
+    # on the second pass of the repeated hour (RM-18c).
+    start = datetime(2026, 11, 1, 1, 30, tzinfo=la_tz, fold=1)
+    series = ReminderEvent(
+        uid="series1", summary="water plants", start=start, rrule="FREQ=DAILY"
+    )
+    store = _make_store([series], datetime(2026, 11, 1, 1, 34, tzinfo=la_tz))
+    calls: list = []
+    delivery = ReminderDelivery(
+        _make_hass(calls), SimpleNamespace(options={}, data={}), store
+    )
+
+    now = datetime(2026, 11, 1, 1, 35, tzinfo=la_tz)
+    monkeypatch.setattr(dt_util, "now", lambda *_: now)
+    asyncio.run(delivery.async_tick())
+    assert calls == []
+    current = next(e for e in store.events if e.uid == "series1")
+    assert current.start.astimezone(UTC) == start.astimezone(UTC)
+
+    now = datetime(2026, 11, 1, 1, 30, 40, tzinfo=la_tz, fold=1)
+    asyncio.run(delivery.async_tick())
+    assert len(calls) == 1
+    advanced = next(e for e in store.events if e.uid == "series1")
+    assert advanced.start.tzinfo is la_tz
+    assert (advanced.start.day, advanced.start.hour, advanced.start.minute) == (
+        2,
+        1,
+        30,
+    )
+
+
+def test_prune_retention_is_elapsed_time_across_fall_back(la_tz, monkeypatch):
+    # Ticked at 01:30 PST (fold=1), a one-shot from 7 days and 30 real minutes
+    # ago is past the 7-day retention and must be pruned. A wall-clock cutoff
+    # (01:30 PDT a week earlier) would keep it an extra hour (RM-18c).
+    now = datetime(2026, 11, 1, 1, 30, tzinfo=la_tz, fold=1)
+    start = datetime(2026, 10, 25, 9, 0, tzinfo=UTC).astimezone(la_tz)
+    old = ReminderEvent(uid="old1", summary="water plants", start=start)
+    store = _make_store([old], now - timedelta(minutes=1))
+    delivery = ReminderDelivery(
+        _make_hass([]), SimpleNamespace(options={}, data={}), store
+    )
+
+    monkeypatch.setattr(dt_util, "now", lambda *_: now)
+    asyncio.run(delivery.async_tick())
+    assert store.events == []

@@ -121,3 +121,103 @@ def test_update_event_stores_start_in_local_zone():
     assert stored.tzinfo is dt_util.DEFAULT_TIME_ZONE
     assert stored == utc_start
     assert (stored.hour, stored.minute) == (8, 0)
+
+
+# DST fold (RM-18c): on 2026-11-01 Los Angeles repeats 01:00-02:00. fold=0 is the
+# first pass (PDT, UTC-7) and fold=1 the second (PST, UTC-8), an hour later in real
+# time. Python compares same-zone datetimes by wall clock and ignores fold, so the
+# calendar must compare real instants.
+
+
+def _fold(hour: int, minute: int, fold: int, tz) -> datetime:
+    return datetime(2026, 11, 1, hour, minute, tzinfo=tz, fold=fold)
+
+
+def _entity(events: list) -> calendar.ReminderCalendarEntity:
+    entity = object.__new__(calendar.ReminderCalendarEntity)
+
+    class _FakeStore:
+        pass
+
+    store = _FakeStore()
+    store.events = events
+    entity._store = store
+    return entity
+
+
+def test_event_property_picks_fold_one_start_after_fold_zero_now(la_tz, monkeypatch):
+    # 01:30 PST is 50 real minutes after 01:40 PDT.
+    monkeypatch.setattr(calendar.dt_util, "now", lambda *_: _fold(1, 40, 0, la_tz))
+    entity = _entity(
+        [ReminderEvent(uid="u1", summary="late", start=_fold(1, 30, 1, la_tz))]
+    )
+    got = entity.event
+    assert got is not None
+    assert got.uid == "u1"
+
+
+def test_event_property_skips_fold_zero_start_before_fold_one_now(la_tz, monkeypatch):
+    # 01:30 PDT was 40 real minutes before 01:10 PST.
+    monkeypatch.setattr(calendar.dt_util, "now", lambda *_: _fold(1, 10, 1, la_tz))
+    past = ReminderEvent(uid="past", summary="gone", start=_fold(1, 30, 0, la_tz))
+    assert _entity([past]).event is None
+    later = ReminderEvent(uid="later", summary="next", start=_fold(1, 20, 1, la_tz))
+    got = _entity([past, later]).event
+    assert got is not None
+    assert got.uid == "later"
+
+
+def test_event_property_orders_by_real_instant(la_tz, monkeypatch):
+    # 01:45 PDT is 45 real minutes before 01:30 PST.
+    monkeypatch.setattr(calendar.dt_util, "now", lambda *_: _fold(0, 30, 0, la_tz))
+    entity = _entity(
+        [
+            ReminderEvent(uid="pst", summary="b", start=_fold(1, 30, 1, la_tz)),
+            ReminderEvent(uid="pdt", summary="a", start=_fold(1, 45, 0, la_tz)),
+        ]
+    )
+    got = entity.event
+    assert got is not None
+    assert got.uid == "pdt"
+
+
+def test_get_events_range_edges_compare_real_instants(la_tz, monkeypatch):
+    monkeypatch.setattr(calendar.dt_util, "now", lambda *_: _fold(0, 0, 0, la_tz))
+    entity = _entity(
+        [
+            ReminderEvent(uid="in", summary="a", start=_fold(1, 30, 1, la_tz)),
+            ReminderEvent(uid="out", summary="b", start=_fold(1, 30, 0, la_tz)),
+        ]
+    )
+    got = asyncio.run(
+        entity.async_get_events(None, _fold(1, 0, 1, la_tz), _fold(2, 0, 0, la_tz))
+    )
+    assert [e.uid for e in got] == ["in"]
+
+
+def test_to_calendar_event_end_is_one_real_minute_in_fold(la_tz, monkeypatch):
+    # 01:31 PDT is 59 real minutes before 01:30 PST, so the event isn't acked.
+    monkeypatch.setattr(calendar.dt_util, "now", lambda *_: _fold(1, 31, 0, la_tz))
+    start = _fold(1, 30, 1, la_tz)
+    got = calendar._to_calendar_event(
+        ReminderEvent(uid="u1", summary="water plants", start=start)
+    )
+    assert dt_util.as_utc(got.end) - dt_util.as_utc(start) == timedelta(minutes=1)
+    assert got.summary == "water plants"
+
+
+def test_expand_recurring_range_edge_in_fold_hour(la_tz, monkeypatch):
+    # 01:30 PDT on 11-01 is before a range starting at 01:00 PST; 11-02 is inside.
+    monkeypatch.setattr(calendar.dt_util, "now", lambda *_: _fold(0, 0, 0, la_tz))
+    event = ReminderEvent(
+        uid="r1",
+        summary="medicine",
+        start=_fold(1, 30, 0, la_tz),
+        rrule="FREQ=DAILY",
+    )
+    got = calendar._expand_recurring(
+        event,
+        _fold(1, 0, 1, la_tz),
+        datetime(2026, 11, 2, 23, 59, tzinfo=la_tz),
+    )
+    assert [e.start.date() for e in got] == [date(2026, 11, 2)]

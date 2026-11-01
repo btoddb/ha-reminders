@@ -259,3 +259,10 @@ repeated fall-back hour. This repairs reminders persisted with a stale offset.
 
 **RM-18b.** Relative delays (`in_minutes`, snooze) are elapsed real time: "in 60
 minutes" across a DST change fires 60 real minutes later.
+
+**RM-18c.** Time checks compare real instants. Wherever a reminder's start (one-shot
+or recurring) is checked against now, the delivery watermark, the prune cutoff, or a
+calendar range bound, the comparison is by real instant, so the two 1:30s of a
+fall-back night are an hour apart. The catch-up offsets (RM-7's 2 minutes, RM-7b's
+6 hours), the prune retention, and a calendar event's duration are elapsed real time.
+Recurrence stepping stays wall-clock (RM-18).

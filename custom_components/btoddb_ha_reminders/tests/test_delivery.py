@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -653,6 +654,62 @@ def test_due_events_snooze_into_repeated_hour_waits_for_second_pass():
         watermark = datetime(2026, 11, 1, 1, 29, 40, tzinfo=LA, fold=fold)
         tick = datetime(2026, 11, 1, 1, 30, 40, tzinfo=LA, fold=fold)
         assert due_events([snoozed], watermark, tick) == expected
+
+
+def test_effective_watermark_fallback_is_real_minutes_in_repeated_hour():
+    # 01:30 PST (fold=1) - 2 real minutes = 01:28 PST, not 01:28 PDT (RM-18c).
+    now = datetime(2026, 11, 1, 1, 30, tzinfo=LA, fold=1)
+    wm = effective_watermark(None, now)
+    assert wm.tzinfo is LA
+    assert (wm.hour, wm.minute, wm.fold) == (1, 28, 1)
+    assert now.astimezone(UTC) - wm.astimezone(UTC) == timedelta(minutes=2)
+
+
+def test_effective_watermark_floor_is_six_real_hours_in_repeated_hour():
+    # 01:30 PST (09:30 UTC) - 6 real hours = 2026-10-31 20:30 PDT (RM-18c).
+    now = datetime(2026, 11, 1, 1, 30, tzinfo=LA, fold=1)
+    wm = effective_watermark(datetime(2026, 10, 1, 8, 0, tzinfo=LA), now)
+    assert wm.tzinfo is LA
+    assert wm.astimezone(UTC) == datetime(2026, 11, 1, 3, 30, tzinfo=UTC)
+    assert (wm.day, wm.hour, wm.minute) == (31, 20, 30)
+
+
+def test_advance_recurring_compares_instants_in_repeated_hour():
+    # Current occurrence is 01:30 PST (fold=1). At 01:35 PDT it is still ahead,
+    # so it must not advance; at 01:35 PST it has passed (RM-18c).
+    event = ReminderEvent(
+        uid="r1",
+        summary="medicine",
+        start=datetime(2026, 11, 1, 1, 30, tzinfo=LA, fold=1),
+        rrule="FREQ=DAILY",
+    )
+    same = advance_recurring(event, datetime(2026, 11, 1, 1, 35, tzinfo=LA))
+    assert same is not None
+    assert same.start.astimezone(UTC) == event.start.astimezone(UTC)
+
+    nxt = advance_recurring(event, datetime(2026, 11, 1, 1, 35, tzinfo=LA, fold=1))
+    assert nxt is not None
+    assert nxt.start.tzinfo is LA
+    assert (nxt.start.date(), nxt.start.hour, nxt.start.minute) == (
+        date(2026, 11, 2),
+        1,
+        30,
+    )
+
+
+def test_already_fired_compares_instants_in_repeated_hour():
+    # A copy of the 01:30 PDT occurrence is not proof the 01:30 PST one fired.
+    series = ReminderEvent(
+        uid="series1",
+        summary="water plants",
+        start=datetime(2026, 11, 1, 1, 30, tzinfo=LA, fold=1),
+        rrule="FREQ=DAILY",
+    )
+    earlier = delivery.fired_copy(
+        dataclasses.replace(series, start=series.start.replace(fold=0))
+    )
+    assert not delivery.already_fired(series, [series, earlier])
+    assert delivery.already_fired(series, [series, delivery.fired_copy(series)])
 
 
 # ---------------------------------------------------------------------------

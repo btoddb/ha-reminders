@@ -204,3 +204,32 @@ def test_update_past_check_compares_instants_in_repeated_hour(la_tz, monkeypatch
     assert start.tzinfo is la_tz
     assert start.fold == 1
     assert start.astimezone(UTC) == datetime(2026, 11, 1, 9, 30, tzinfo=UTC)
+
+
+def test_prune_compares_instants_in_repeated_hour():
+    # 01:30 PST (fold=1) is 50 real minutes after 01:40 PDT, so it is kept; it is
+    # 10 real minutes before 01:40 PST, so it is dropped (RM-18c).
+    event = ReminderEvent(
+        uid="u1", summary="s", start=datetime(2026, 11, 1, 1, 30, tzinfo=LA, fold=1)
+    )
+    store, _ = _make_store([event])
+    asyncio.run(store.async_prune(datetime(2026, 11, 1, 1, 40, tzinfo=LA)))
+    assert store.events == [event]
+
+    asyncio.run(store.async_prune(datetime(2026, 11, 1, 1, 40, tzinfo=LA, fold=1)))
+    assert store.events == []
+
+
+def test_in_range_compares_instants_in_repeated_hour():
+    # [01:20, 01:40] PDT ends before 01:30 PST; the same wall range in PST holds it.
+    event = ReminderEvent(
+        uid="u1", summary="s", start=datetime(2026, 11, 1, 1, 30, tzinfo=LA, fold=1)
+    )
+    store, _ = _make_store([event])
+    pdt = (
+        datetime(2026, 11, 1, 1, 20, tzinfo=LA),
+        datetime(2026, 11, 1, 1, 40, tzinfo=LA),
+    )
+    pst = tuple(bound.replace(fold=1) for bound in pdt)
+    assert store.in_range(*pdt) == []
+    assert store.in_range(*pst) == [event]
