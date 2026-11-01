@@ -244,3 +244,18 @@ occurrence / This and future / All occurrences** — and passes the choice as
 `scope`. For "only this" the card skips its usual snap-`when`-to-the-rrule-pattern
 adjustment, since the user may be deliberately moving that one occurrence off the
 series' pattern.
+
+## Time zones and DST (issue #92)
+
+**RM-18 (constraint).** A time reminder's start is a local wall-clock time in HA's
+configured time zone and is always held with that zone, never a fixed UTC offset.
+Recurring occurrences keep their wall-clock time across DST changes (a daily 8 AM
+reminder fires at 8 AM before and after the change) — in delivery and on the
+calendar.
+
+**RM-18a.** On load, stored starts are re-anchored to HA's zone by their wall-clock
+time; the stored offset is used only to pick the earlier/later instance of a
+repeated fall-back hour. This repairs reminders persisted with a stale offset.
+
+**RM-18b.** Relative delays (`in_minutes`, snooze) are elapsed real time: "in 60
+minutes" across a DST change fires 60 real minutes later.

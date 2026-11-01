@@ -501,7 +501,9 @@ def _resolve_start(
 ) -> datetime | None:
     """Resolve a when/in_minutes pair to a timezone-aware local datetime."""
     if in_minutes is not None:
-        return now + timedelta(minutes=in_minutes)
+        # Elapsed real time, so a delay spanning a DST change isn't off by an hour
+        # (RM-18b).
+        return dt_util.as_local(dt_util.as_utc(now) + timedelta(minutes=in_minutes))
     if when not in (None, ""):
         parsed = dt_util.parse_datetime(when)
         if parsed is not None:
@@ -559,7 +561,8 @@ def _make_update_handler(
                 "Provide at least one of message, when, in_minutes, or rrule to update."
             )
             _reject_input(msg)
-        if start is not None and start < now:
+        # Compare instants; a same-zone comparison ignores fold (RM-18b).
+        if start is not None and dt_util.as_utc(start) < dt_util.as_utc(now):
             msg = f"Cannot update reminder to a time in the past ({start.isoformat()})."
             _reject_input(msg)
         scope: str = call.data.get(ATTR_SCOPE, SCOPE_FUTURE)

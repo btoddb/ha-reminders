@@ -147,7 +147,11 @@ class ReminderCalendarEntity(CalendarEntity):
         recurrence_range: str | None = None,
     ) -> None:
         """Update a reminder (e.g. from the calendar card or calendar.update_event)."""
-        start = event.start if isinstance(event.start, datetime) else None
+        # HA's calendar dialog may send UTC or a fixed offset; hold it in HA's zone so
+        # a recurring reminder keeps its wall-clock time across DST (RM-18).
+        start = (
+            dt_util.as_local(event.start) if isinstance(event.start, datetime) else None
+        )
         # Strip any read-time strikethrough so editing an acked event through HA's
         # calendar dialog can't persist the combining characters (RM-16a).
         summary = strip_strikethrough(event.summary) if event.summary else event.summary

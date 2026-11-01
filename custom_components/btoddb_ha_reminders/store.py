@@ -33,6 +33,24 @@ if TYPE_CHECKING:
 _RRULE_UNSET: object = object()
 
 
+def _as_local_wall_clock(dt: datetime) -> datetime:
+    """
+    Re-anchor a stored start to HA's time zone by its wall-clock time (RM-18a).
+
+    Starts are persisted with a fixed UTC offset, which would otherwise pin a
+    recurring reminder to that offset across a DST change. The wall-clock time is
+    authoritative; the stored offset only picks the earlier/later instance of a
+    repeated fall-back hour. A stale offset is dropped, repairing old data.
+    """
+    local = dt.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    if dt.tzinfo is None or local.utcoffset() == dt.utcoffset():
+        return local
+    later = local.replace(fold=1)
+    if later.utcoffset() == dt.utcoffset():
+        return later
+    return local
+
+
 class ReminderStore:
     """In-memory reminder events + watermark, persisted to HA ``.storage``."""
 
@@ -55,7 +73,7 @@ class ReminderStore:
                 ReminderEvent(
                     uid=raw["uid"],
                     summary=raw["summary"],
-                    start=start,
+                    start=_as_local_wall_clock(start),
                     rrule=raw.get("rrule"),
                     series_uid=raw.get("series_uid"),
                 )
