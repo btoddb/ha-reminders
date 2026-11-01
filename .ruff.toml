@@ -17,6 +17,7 @@ ignore = [
     "D212", # multi-line-summary-first-line (incompatible with formatter)
     "COM812", # incompatible with formatter
     "ISC001", # incompatible with formatter
+    "CPY001", # no per-file copyright headers; see LICENSE
 ]
 
 [lint.flake8-pytest-style]
@@ -37,6 +38,7 @@ max-complexity = 25
     "FBT002",  # boolean default positional arg
     "INP001",  # deliberately no __init__.py: keeps pytest from importing the HA-dependent integration package
     "PLR0913", # too many arguments
+    "PLR0917", # too many positional arguments
     "PLR2004", # magic values in comparisons
     "PT018",   # assertion should be broken into parts
     "S101",    # assert is the normal test pattern
