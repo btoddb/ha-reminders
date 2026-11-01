@@ -53,15 +53,19 @@ def _expand_recurring(
         return []
     # Start from the stored anchor (always the next future occurrence — roll-forward
     # model). Never walk backward: occurrences before event.start have already fired.
+    # Range edges compare real instants, not wall clock, so the DST fold hour's
+    # two passes order correctly (RM-18c). Stepping itself stays wall-clock (RM-18).
+    start_utc = dt_util.as_utc(range_start)
+    end_utc = dt_util.as_utc(range_end)
     anchor = event.start
-    while anchor < range_start:
+    while dt_util.as_utc(anchor) < start_utc:
         nxt = _next_occurrence(event.rrule, anchor)
         if nxt is None:
             return []
         anchor = nxt
     results: list[CalendarEvent] = []
     current = anchor
-    while current <= range_end:
+    while dt_util.as_utc(current) <= end_utc:
         results.append(_to_calendar_event(dataclasses.replace(event, start=current)))
         nxt = _next_occurrence(event.rrule, current)
         if nxt is None:
@@ -74,8 +78,10 @@ def _to_calendar_event(event: ReminderEvent) -> CalendarEvent:
     # An acked reminder — its moment has passed — stays on the calendar struck
     # through (RM-16a). Decoration is applied at read time only; the stored
     # summary stays clean.
-    end = event.start + EVENT_DURATION
-    acked = end <= dt_util.now()
+    # Real elapsed time, not wall-clock arithmetic (which drops fold), so a start
+    # in the DST fold's second pass doesn't end before it begins (RM-18c).
+    end = (dt_util.as_utc(event.start) + EVENT_DURATION).astimezone(event.start.tzinfo)
+    acked = dt_util.as_utc(end) <= dt_util.as_utc(dt_util.now())
     return CalendarEvent(
         summary=strike_text(event.summary) if acked else event.summary,
         start=event.start,
@@ -111,9 +117,11 @@ class ReminderCalendarEntity(CalendarEntity):
     @property
     def event(self) -> CalendarEvent | None:
         """The next upcoming reminder, if any."""
-        now = dt_util.now()
+        # Compare real instants so the DST fold hour orders correctly (RM-18c).
+        now = dt_util.as_utc(dt_util.now())
         upcoming = sorted(
-            (e for e in self._store.events if e.start >= now), key=lambda e: e.start
+            (e for e in self._store.events if dt_util.as_utc(e.start) >= now),
+            key=lambda e: dt_util.as_utc(e.start),
         )
         return _to_calendar_event(upcoming[0]) if upcoming else None
 
@@ -122,9 +130,12 @@ class ReminderCalendarEntity(CalendarEntity):
     ) -> list[CalendarEvent]:
         """Return reminders within the requested window, expanding recurring events."""
         results: list[CalendarEvent] = []
+        # Compare real instants so the DST fold hour filters correctly (RM-18c).
+        start_utc = dt_util.as_utc(start_date)
+        end_utc = dt_util.as_utc(end_date)
         for e in self._store.events:
             if e.rrule is None:
-                if start_date <= e.start <= end_date:
+                if start_utc <= dt_util.as_utc(e.start) <= end_utc:
                     results.append(_to_calendar_event(e))
             else:
                 results.extend(_expand_recurring(e, start_date, end_date))

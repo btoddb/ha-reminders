@@ -60,11 +60,14 @@ def effective_watermark(stored: datetime | None, now: datetime) -> datetime:
     Resolve the effective lower bound of the delivery window.
 
     ``max(stored_or_fallback, now - 6h)`` — the 6h floor (RM-7b) only kicks in when the
-    stored watermark is older than that or missing entirely (RM-7).
+    stored watermark is older than that or missing entirely (RM-7). Both offsets are
+    real elapsed time, computed in UTC so they hold in a repeated fall-back hour
+    (RM-18c); the result is returned in ``now``'s zone.
     """
-    base = stored if stored is not None else now - FRESH_FALLBACK
-    floor = now - CATCHUP_FLOOR
-    return max(floor, base)
+    now_utc = now.astimezone(UTC)
+    base = stored.astimezone(UTC) if stored is not None else now_utc - FRESH_FALLBACK
+    floor = now_utc - CATCHUP_FLOOR
+    return max(floor, base).astimezone(now.tzinfo)
 
 
 def already_fired(event: ReminderEvent, events: list[ReminderEvent]) -> bool:
@@ -74,9 +77,14 @@ def already_fired(event: ReminderEvent, events: list[ReminderEvent]) -> bool:
     A copy with ``series_uid == event.uid`` at the same ``start`` is only ever
     persisted right after the occurrence's notification went out, so its presence
     means the series event itself must not be delivered again — it just needs to
-    be rolled forward (a crash interrupted the advance).
+    be rolled forward (a crash interrupted the advance). Starts are compared as
+    instants so a copy of one pass of a repeated hour never matches the other (RM-18c).
     """
-    return any(e.series_uid == event.uid and e.start == event.start for e in events)
+    start_utc = event.start.astimezone(UTC)
+    return any(
+        e.series_uid == event.uid and e.start.astimezone(UTC) == start_utc
+        for e in events
+    )
 
 
 def due_events(
@@ -93,7 +101,7 @@ def due_events(
     occurrence was delivered and only the series advance was lost.
     """
     # Compare instants: same-zone comparisons ignore ``fold``, so a start in the
-    # repeated fall-back hour would otherwise fire an hour early (RM-18b).
+    # repeated fall-back hour would otherwise fire an hour early (RM-18c).
     wm_utc = watermark.astimezone(UTC)
     now_utc = now.astimezone(UTC)
     return [
@@ -312,8 +320,10 @@ def advance_recurring(event: ReminderEvent, now: datetime) -> ReminderEvent | No
     if parts.get("FREQ") not in ("DAILY", "WEEKLY", "MONTHLY"):
         return None
     nxt = event.start
-    # A fold-blind (wall-clock) comparison is benign: series are wall-clock (RM-18).
-    while nxt <= now:
+    # Compare instants (RM-18c): the current occurrence may be the second (fold=1)
+    # pass of a repeated hour. Stepping itself stays wall-clock (RM-18).
+    now_utc = now.astimezone(UTC)
+    while nxt.astimezone(UTC) <= now_utc:
         candidate = next_occurrence(event.rrule, nxt)
         if candidate is None:
             return None
