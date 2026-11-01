@@ -13,7 +13,7 @@ import dataclasses
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 # Action ID prefix embedded in mobile notification snooze buttons (RM-13).
 # Format: BTODDB_HA_REMINDERS_SNOOZE__{uid}__{minutes}
@@ -92,11 +92,15 @@ def due_events(
     a matching fired copy is skipped for the same reason — the copy is proof the
     occurrence was delivered and only the series advance was lost.
     """
+    # Compare instants: same-zone comparisons ignore ``fold``, so a start in the
+    # repeated fall-back hour would otherwise fire an hour early (RM-18b).
+    wm_utc = watermark.astimezone(UTC)
+    now_utc = now.astimezone(UTC)
     return [
         e
         for e in events
         if e.series_uid is None
-        and watermark < e.start <= now
+        and wm_utc < e.start.astimezone(UTC) <= now_utc
         and not already_fired(e, events)
     ]
 
@@ -308,6 +312,7 @@ def advance_recurring(event: ReminderEvent, now: datetime) -> ReminderEvent | No
     if parts.get("FREQ") not in ("DAILY", "WEEKLY", "MONTHLY"):
         return None
     nxt = event.start
+    # A fold-blind (wall-clock) comparison is benign: series are wall-clock (RM-18).
     while nxt <= now:
         candidate = next_occurrence(event.rrule, nxt)
         if candidate is None:
@@ -529,12 +534,14 @@ def snoozed_event(
     Return a new one-shot copy of ``original`` set to fire ``minutes`` after ``now``.
 
     The summary is preserved; a fresh uid is assigned so both events are independent
-    in the store.  rrule is always cleared — fires exactly once (RM-11).
+    in the store.  rrule is always cleared — fires exactly once (RM-11). The delay is
+    elapsed real time, computed in UTC so it holds across a DST change (RM-18b).
     """
+    start = (now.astimezone(UTC) + timedelta(minutes=minutes)).astimezone(now.tzinfo)
     return ReminderEvent(
         uid=uuid.uuid4().hex,
         summary=original.summary,
-        start=now + timedelta(minutes=minutes),
+        start=start,
         rrule=None,
     )
 

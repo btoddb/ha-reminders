@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from conftest import load_module
 
@@ -579,6 +580,79 @@ def test_snoozed_event_one_shot_has_no_rrule():
     event = _ev("orig", 0)
     snoozed = snoozed_event(event, NOW, 60)
     assert snoozed.rrule is None
+
+
+# ---------------------------------------------------------------------------
+# DST — wall-clock recurrence, elapsed-time snooze (RM-18, RM-18b).
+# America/Los_Angeles; DST ends 2026-11-01 02:00 local.
+# ---------------------------------------------------------------------------
+
+LA = ZoneInfo("America/Los_Angeles")
+
+
+def _assert_8am_pst(start: datetime) -> None:
+    assert start.tzinfo is LA
+    assert (start.hour, start.minute) == (8, 0)
+    assert start.utcoffset() == timedelta(hours=-8)
+
+
+def test_advance_recurring_daily_keeps_wall_clock_across_dst():
+    event = ReminderEvent(
+        uid="r1",
+        summary="medicine",
+        start=datetime(2026, 10, 31, 8, 0, tzinfo=LA),
+        rrule="FREQ=DAILY",
+    )
+    nxt = advance_recurring(event, datetime(2026, 11, 1, 9, 0, tzinfo=LA))
+    assert nxt is not None
+    assert nxt.start.date() == date(2026, 11, 2)
+    _assert_8am_pst(nxt.start)
+
+
+def test_advance_recurring_weekly_keeps_wall_clock_across_dst():
+    event = ReminderEvent(
+        uid="r1",
+        summary="trash",
+        start=datetime(2026, 10, 28, 8, 0, tzinfo=LA),  # Wednesday, PDT
+        rrule="FREQ=WEEKLY;BYDAY=WE",
+    )
+    nxt = advance_recurring(event, datetime(2026, 10, 28, 9, 0, tzinfo=LA))
+    assert nxt is not None
+    assert nxt.start.date() == date(2026, 11, 4)
+    _assert_8am_pst(nxt.start)
+
+
+def test_advance_recurring_monthly_keeps_wall_clock_across_dst():
+    event = ReminderEvent(
+        uid="r1",
+        summary="rent",
+        start=datetime(2026, 10, 15, 8, 0, tzinfo=LA),
+        rrule="FREQ=MONTHLY",
+    )
+    nxt = advance_recurring(event, datetime(2026, 10, 15, 9, 0, tzinfo=LA))
+    assert nxt is not None
+    assert nxt.start.date() == date(2026, 11, 15)
+    _assert_8am_pst(nxt.start)
+
+
+def test_snoozed_event_is_elapsed_time_across_dst():
+    # 01:30 PDT (first pass of the repeated hour) + 60 real minutes = 01:30 PST.
+    now = datetime(2026, 11, 1, 1, 30, tzinfo=LA)
+    snoozed = snoozed_event(_ev("orig", 0), now, 60)
+    assert snoozed.start.tzinfo is LA
+    assert snoozed.start.astimezone(UTC) - now.astimezone(UTC) == timedelta(minutes=60)
+    assert (snoozed.start.hour, snoozed.start.minute, snoozed.start.fold) == (1, 30, 1)
+
+
+def test_due_events_snooze_into_repeated_hour_waits_for_second_pass():
+    # Snoozed at 01:30 PDT for 60 min -> 01:30 PST (fold=1). Same-zone comparisons
+    # ignore fold, so without comparing instants the next tick would fire it.
+    now = datetime(2026, 11, 1, 1, 30, tzinfo=LA)
+    snoozed = snoozed_event(_ev("orig", 0), now, 60)
+    for fold, expected in ((0, []), (1, [snoozed])):
+        watermark = datetime(2026, 11, 1, 1, 29, 40, tzinfo=LA, fold=fold)
+        tick = datetime(2026, 11, 1, 1, 30, 40, tzinfo=LA, fold=fold)
+        assert due_events([snoozed], watermark, tick) == expected
 
 
 # ---------------------------------------------------------------------------

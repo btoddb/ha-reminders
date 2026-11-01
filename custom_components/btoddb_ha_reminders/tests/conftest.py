@@ -11,6 +11,9 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import pytest
 
 # With --import-mode=importlib, pytest doesn't add the conftest directory to
 # sys.path, so "from conftest import load_module" in test files fails unless
@@ -20,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from types import ModuleType
 
 
@@ -57,3 +61,20 @@ def load_module(name: str) -> ModuleType:
     sys.modules[mod_name] = module
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.fixture
+def la_tz() -> Iterator[ZoneInfo]:
+    """
+    Set HA's default time zone to America/Los_Angeles for one test (RM-18).
+
+    DST ends there 2026-11-01 02:00 local. Home Assistant is imported lazily so the
+    HA-free test modules never pull it in.
+    """
+    from homeassistant.util import dt as dt_util  # noqa: PLC0415
+
+    original = dt_util.DEFAULT_TIME_ZONE
+    tz = ZoneInfo("America/Los_Angeles")
+    dt_util.set_default_time_zone(tz)
+    yield tz
+    dt_util.set_default_time_zone(original)
